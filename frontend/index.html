@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wix Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Mock SaaS Dashboard -->
+  <div class="page">
+    <!-- Top Nav -->
+    <header class="topnav">
+      <div class="topnav-left">
+        <span class="logo">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <rect width="28" height="28" rx="6" fill="#4353FF"/>
+            <path d="M7 10l4 8 3-5 3 5 4-8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="logo-text">Wix</span>
+        </span>
+      </div>
+      <nav class="topnav-links">
+        <a href="#" class="nav-link active">Dashboard</a>
+        <a href="#" class="nav-link">Sites</a>
+        <a href="#" class="nav-link">Analytics</a>
+        <a href="#" class="nav-link">Marketing</a>
+      </nav>
+      <div class="topnav-right">
+        <div class="avatar">AB</div>
+      </div>
+    </header>
+
+    <div class="layout">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <p class="sidebar-label">My Sites</p>
+          <ul class="sidebar-list">
+            <li class="sidebar-item active">
+              <span class="sidebar-icon">🏠</span> My Portfolio
+            </li>
+            <li class="sidebar-item">
+              <span class="sidebar-icon">🛒</span> Online Store
+            </li>
+            <li class="sidebar-item">
+              <span class="sidebar-icon">📝</span> Blog
+            </li>
+          </ul>
+        </div>
+        <div class="sidebar-section">
+          <p class="sidebar-label">Tools</p>
+          <ul class="sidebar-list">
+            <li class="sidebar-item">
+              <span class="sidebar-icon">📊</span> Analytics
+            </li>
+            <li class="sidebar-item">
+              <span class="sidebar-icon">📧</span> Email Marketing
+            </li>
+            <li class="sidebar-item">
+              <span class="sidebar-icon">💰</span> Billing
+            </li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="content">
+        <div class="content-header">
+          <h1 class="page-title">Dashboard</h1>
+          <button class="btn-primary">+ New Site</button>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <p class="stat-label">Total Visits</p>
+            <p class="stat-value">12,847</p>
+            <p class="stat-delta positive">+8.2% this month</p>
+          </div>
+          <div class="stat-card">
+            <p class="stat-label">Active Sites</p>
+            <p class="stat-value">3</p>
+            <p class="stat-delta">across all plans</p>
+          </div>
+          <div class="stat-card">
+            <p class="stat-label">Revenue</p>
+            <p class="stat-value">$2,340</p>
+            <p class="stat-delta positive">+12% this month</p>
+          </div>
+          <div class="stat-card">
+            <p class="stat-label">Subscribers</p>
+            <p class="stat-value">641</p>
+            <p class="stat-delta positive">+23 this week</p>
+          </div>
+        </div>
+
+        <div class="panels-row">
+          <div class="panel">
+            <h2 class="panel-title">Recent Activity</h2>
+            <ul class="activity-list">
+              <li class="activity-item">
+                <span class="activity-dot"></span>
+                <span>Site <strong>My Portfolio</strong> published</span>
+                <span class="activity-time">2h ago</span>
+              </li>
+              <li class="activity-item">
+                <span class="activity-dot"></span>
+                <span>New order #1042 received</span>
+                <span class="activity-time">5h ago</span>
+              </li>
+              <li class="activity-item">
+                <span class="activity-dot"></span>
+                <span>Domain <strong>mysite.com</strong> renewed</span>
+                <span class="activity-time">1d ago</span>
+              </li>
+              <li class="activity-item">
+                <span class="activity-dot"></span>
+                <span>Email campaign sent to 641 contacts</span>
+                <span class="activity-time">2d ago</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="panel">
+            <h2 class="panel-title">Quick Actions</h2>
+            <div class="quick-actions">
+              <button class="qa-btn">Edit Site</button>
+              <button class="qa-btn">Add Domain</button>
+              <button class="qa-btn">View Analytics</button>
+              <button class="qa-btn">Upgrade Plan</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Chat Widget -->
+  <button class="chat-fab" id="chatFab" aria-label="Open support chat">
+    <svg class="fab-icon fab-icon--chat" width="24" height="24" viewBox="0 0 24 24" fill="none">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <svg class="fab-icon fab-icon--close" width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M15 5L5 15M5 5l10 10" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+
+  <div class="chat-panel" id="chatPanel" aria-hidden="true">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <div class="chat-avatar">W</div>
+        <div>
+          <p class="chat-title">Wix Support</p>
+          <p class="chat-subtitle">Ask me anything about Wix</p>
+        </div>
+      </div>
+      <button class="chat-close" id="chatClose" aria-label="Close chat">×</button>
+    </div>
+
+    <div class="chat-thread" id="chatThread">
+      <!-- Welcome message injected by JS -->
+    </div>
+
+    <div class="chat-input-row">
+      <textarea
+        class="chat-input"
+        id="chatInput"
+        placeholder="Ask a question…"
+        rows="1"
+        aria-label="Your question"
+      ></textarea>
+      <button class="chat-send" id="chatSend" aria-label="Send">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M16 2L2 9l5 2 2 5 7-14z" fill="white"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
