@@ -81,29 +81,64 @@ chroma_db/           # Persisted vector store (created on first ingest)
 
 ## Pipeline
 
-```
-query
-  │
-  ▼
-[query rewriter]   ← expand if < 8 words (gpt-4o-mini)
-  │
-  ▼
-[retriever]        ← top-20 candidates from ChromaDB
-  │
-  ▼
-[reranker]         ← cross-encoder (ms-marco-MiniLM-L6-v2) → top-5 + scores
-  │
-  ▼
-[relevance gate]   ← if top reranker score < threshold → short-circuit
-  │
-  ▼
-[generator]        ← generate answer from top-5 chunks (gpt-4o-mini)
-  │
-  ▼
-[faithfulness]     ← verify answer grounded in chunks; append caveat if not
-  │
-  ▼
-response
+```mermaid
+flowchart TD
+
+  %% ── Ingest (one-time) ──────────────────────────────────────
+  subgraph INGEST["ingest.py  (one-time)"]
+    direction TB
+    DS["Wix/WixQA dataset\n(HuggingFace)"]
+    CHUNK["Chunker\n1 · split on \\n\\n\n2 · merge &lt;50 tok\n3 · split &gt;300 tok at sentences\n4 · 50-token sliding overlap"]
+    EMBED_I["Embed chunks\nall-MiniLM-L6-v2"]
+    CHROMA[("ChromaDB\ncollection: wix_kb")]
+
+    DS -->|article body| CHUNK --> EMBED_I --> CHROMA
+  end
+
+  %% ── Runtime ────────────────────────────────────────────────
+  USER["User question"]
+  API["FastAPI  POST /ask"]
+  RL{"Rate limit\n≤100 req/day\nrate_limit.json"}
+  QR{"Query rewriter\ngpt-4o-mini\n(short query only, &lt;8 words)"}
+  EMBED_R["Embed query\nall-MiniLM-L6-v2"]
+  VSEARCH["Vector search\nChromaDB · top-k=20"]
+  RERANK["Cross-encoder reranker\nms-marco-MiniLM-L6-v2\ntop-k=5"]
+  REL{"Score ≥ 0.0?"}
+  GEN["Generator\ngpt-4o-mini\nBuilds prompt from chunks"]
+  FAITH{"Faithfulness check\ngpt-4o-mini\nYES / NO"}
+  CAVEAT["Append caveat"]
+  RESP["answer + sources"]
+  NOTFOUND["'No relevant info found'"]
+  ERR429["HTTP 429"]
+
+  USER --> API
+  API --> RL
+  RL -- "limit exceeded" --> ERR429
+  RL -- "ok" --> QR
+  QR -- "rewritten or original" --> EMBED_R --> VSEARCH
+  VSEARCH --> CHROMA
+  CHROMA --> VSEARCH
+  VSEARCH -- "20 candidates" --> RERANK
+  RERANK -- "top 5" --> REL
+  REL -- "no" --> NOTFOUND --> RESP
+  REL -- "yes" --> GEN
+  GEN --> FAITH
+  FAITH -- "YES" --> RESP
+  FAITH -- "NO" --> CAVEAT --> RESP
+  RESP --> USER
+
+  %% ── Styles ─────────────────────────────────────────────────
+  classDef store     fill:#e8f4fd,stroke:#3b82f6,color:#1e3a5f
+  classDef llm       fill:#fef3c7,stroke:#f59e0b,color:#78350f
+  classDef gate      fill:#f3f4f6,stroke:#6b7280,color:#111827
+  classDef endpoint  fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef io        fill:#dcfce7,stroke:#16a34a,color:#14532d
+
+  class CHROMA store
+  class QR,GEN,FAITH llm
+  class RL,REL gate
+  class API endpoint
+  class USER,RESP io
 ```
 
 ## Notes
