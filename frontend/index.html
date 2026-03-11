@@ -154,7 +154,14 @@
           <p class="chat-subtitle">Ask me anything about Wix</p>
         </div>
       </div>
-      <button class="chat-close" id="chatClose" aria-label="Close chat">×</button>
+      <div class="chat-header-actions">
+        <button class="chat-header-btn" id="chatExpand" aria-label="Expand chat">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="chat-header-btn chat-close" id="chatClose" aria-label="Close chat">×</button>
+      </div>
     </div>
 
     <div class="chat-thread" id="chatThread">
@@ -174,6 +181,10 @@
           <path d="M16 2L2 9l5 2 2 5 7-14z" fill="white"/>
         </svg>
       </button>
+    </div>
+
+    <div class="chat-footer">
+      <a href="#" class="talk-to-human" id="talkToHuman">Talk to a person</a>
     </div>
   </div>
 

@@ -11,7 +11,6 @@ Chunking pipeline per article:
 
 import re
 import os
-import sys
 
 import tiktoken
 import chromadb
@@ -95,7 +94,11 @@ def apply_overlap(chunks: list[str], enc, overlap_tokens: int) -> list[str]:
     result = [chunks[0]] if chunks else []
     for i in range(1, len(chunks)):
         prev_tokens = tokenize(enc, chunks[i - 1])
-        overlap = prev_tokens[-overlap_tokens:] if len(prev_tokens) >= overlap_tokens else prev_tokens
+        overlap = (
+            prev_tokens[-overlap_tokens:]
+            if len(prev_tokens) >= overlap_tokens
+            else prev_tokens
+        )
         overlap_text = detokenize(enc, overlap)
         result.append(overlap_text + " " + chunks[i])
     return result
@@ -135,7 +138,9 @@ def main():
         if col.name == COLLECTION_NAME:
             count = col.count()
             if count > 0:
-                print(f"Collection '{COLLECTION_NAME}' already has {count} documents. Skipping ingest.")
+                print(
+                    f"Collection '{COLLECTION_NAME}' already has {count} documents. Skipping ingest."
+                )
                 return
             break
 
@@ -146,7 +151,6 @@ def main():
     enc = tiktoken.get_encoding(ENCODING)
 
     ids = []
-    embeddings = []
     documents = []
     metadatas = []
 
@@ -166,18 +170,20 @@ def main():
             doc_id = f"{article_id}_{chunk_idx}"
             ids.append(doc_id)
             documents.append(chunk_text)
-            metadatas.append({
-                "article_id": article_id,
-                "article_title": title,
-                "chunk_index": chunk_idx,
-            })
+            metadatas.append(
+                {
+                    "article_id": article_id,
+                    "article_title": title,
+                    "chunk_index": chunk_idx,
+                }
+            )
 
     print(f"Embedding {len(documents)} chunks...")
     batch_size = 256
     for start in range(0, len(documents), batch_size):
-        batch_docs = documents[start:start + batch_size]
-        batch_ids = ids[start:start + batch_size]
-        batch_meta = metadatas[start:start + batch_size]
+        batch_docs = documents[start : start + batch_size]
+        batch_ids = ids[start : start + batch_size]
+        batch_meta = metadatas[start : start + batch_size]
         batch_embeddings = model.encode(batch_docs, show_progress_bar=False).tolist()
         collection.add(
             ids=batch_ids,

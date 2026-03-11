@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from typing import List
 
 from fastapi import FastAPI, HTTPException
@@ -8,7 +9,41 @@ from pydantic import BaseModel
 from src.rate_limit import RateLimitExceeded
 from src.pipeline import run
 
-app = FastAPI(title="RAG Support Assistant")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Warm up all lazy singletons at startup so the first request pays no init cost."""
+    import logging
+    log = logging.getLogger("uvicorn.error")
+
+    log.info("Warming up embedding model...")
+    from src.retriever import _get_model, _get_collection
+    _get_model()
+    _get_collection()
+
+    log.info("Warming up cross-encoder...")
+    from src.reranker import _get_reranker
+    _get_reranker()
+
+    log.info("Warming up LLM agents and fetching prompts from Langfuse...")
+    from src.classifier import _get_agent as _clf_agent
+    from src.query_rewriter import _get_agent as _qr_agent
+    from src.generator import (
+        _get_generator_agent, _get_self_critique_agent,
+        _get_followup_agent, _get_high_stakes_agent,
+    )
+    _clf_agent()
+    _qr_agent()
+    _get_generator_agent()
+    _get_self_critique_agent()
+    _get_followup_agent()
+    _get_high_stakes_agent()
+
+    log.info("Warmup complete.")
+    yield
+
+
+app = FastAPI(title="RAG Support Assistant", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,6 +60,7 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     sources: List[str]
+    routing: str
 
 
 class HealthResponse(BaseModel):
@@ -40,7 +76,11 @@ def health():
 def ask(request: AskRequest):
     try:
         result = run(request.question)
-        return AskResponse(answer=result["answer"], sources=result["sources"])
+        return AskResponse(
+            answer=result["answer"],
+            sources=result["sources"],
+            routing=result["routing"],
+        )
     except RateLimitExceeded as e:
         raise HTTPException(status_code=429, detail=str(e))
     except Exception:

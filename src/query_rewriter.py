@@ -1,24 +1,40 @@
-import os
+"""
+Rewrite short queries (<8 words) into fuller, retrieval-optimised questions.
+Uses pydantic-ai with a structured output model.
+"""
 
-from openai import OpenAI
+from pathlib import Path
+from typing import Optional
+
 from dotenv import load_dotenv
+from pydantic import BaseModel
+from pydantic_ai import Agent
+
+from src.prompts import get_prompt, generation_context
 
 load_dotenv()
 
-_client: OpenAI | None = None
-
-REWRITE_PROMPT = (
-    "You are a search query optimizer for a Wix Help Center assistant. "
-    "Rewrite the user's short query into a fuller, retrieval-optimised question "
-    "that includes relevant Wix context. Output only the rewritten query, nothing else."
-)
+_FALLBACK = (Path(__file__).parent.parent / "prompts" / "query_rewriter.txt").read_text().strip()
 
 
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    return _client
+class RewriteResult(BaseModel):
+    rewritten_query: str
+
+
+_agent: Optional[Agent] = None
+_prompt_client = None
+
+
+def _get_agent() -> Agent:
+    global _agent, _prompt_client
+    if _agent is None:
+        _prompt_client, prompt_text = get_prompt("wix-query-rewriter", _FALLBACK)
+        _agent = Agent(
+            "openai:gpt-4o-mini",
+            output_type=RewriteResult,
+            system_prompt=prompt_text,
+        )
+    return _agent
 
 
 def maybe_rewrite(query: str) -> str:
@@ -27,16 +43,9 @@ def maybe_rewrite(query: str) -> str:
         return query
 
     print(f"[query_rewriter] Rewriting short query: {query!r}")
-    client = _get_client()
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        max_tokens=60,
-        messages=[
-            {"role": "system", "content": REWRITE_PROMPT},
-            {"role": "user", "content": query},
-        ],
-    )
-    rewritten = response.choices[0].message.content.strip()
+    agent = _get_agent()
+    with generation_context("wix-query-rewriter", _prompt_client):
+        result = agent.run_sync(query)
+    rewritten = result.output.rewritten_query
     print(f"[query_rewriter] Rewritten to: {rewritten!r}")
     return rewritten

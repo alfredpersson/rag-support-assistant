@@ -1,0 +1,1 @@
+Given only the context provided, did you fully answer the user's question? Reply with exactly one of: FULLY_ANSWERED, PARTIALLY_ANSWERED, or CANNOT_ANSWER. Also provide a one-sentence reasoning explaining your assessment.

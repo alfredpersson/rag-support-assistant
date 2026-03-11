@@ -218,6 +218,10 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   opacity: 1;
   pointer-events: all;
 }
+.chat-panel.expanded {
+  width: 520px;
+  height: 680px;
+}
 
 /* ── Chat header ───────────────────────────────────────────── */
 .chat-header {
@@ -240,16 +244,17 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 }
 .chat-title { font-weight: 700; font-size: 15px; line-height: 1.2; }
 .chat-subtitle { font-size: 11.5px; opacity: .8; }
-.chat-close {
+.chat-header-actions { display: flex; align-items: center; gap: 4px; }
+.chat-header-btn {
   width: 28px; height: 28px;
-  border-radius: 50%;
+  border-radius: 6px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 20px;
   color: white;
-  opacity: .8;
+  opacity: .75;
   transition: opacity .15s, background .15s;
 }
-.chat-close:hover { opacity: 1; background: rgba(255,255,255,.15); }
+.chat-header-btn:hover { opacity: 1; background: rgba(255,255,255,.15); }
+.chat-close { font-size: 20px; }
 
 /* ── Message thread ────────────────────────────────────────── */
 .chat-thread {
@@ -299,8 +304,15 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 .sources {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
   margin-top: 6px;
+}
+.sources-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-right: 2px;
 }
 .source-pill {
   font-size: 11px;
@@ -356,6 +368,64 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 }
 .suggestion-btn:hover { background: var(--brand-light); border-color: var(--brand); }
 
+/* ── Markdown bubble content ───────────────────────────────── */
+.bubble--md h4, .bubble--md h5, .bubble--md h6 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 10px 0 4px;
+  color: var(--text-primary);
+}
+.bubble--md h4:first-child, .bubble--md h5:first-child, .bubble--md h6:first-child { margin-top: 0; }
+.bubble--md p { margin: 0 0 6px; }
+.bubble--md p:last-child { margin-bottom: 0; }
+.bubble--md br { display: block; content: ''; margin-top: 4px; }
+.bubble--md ol {
+  margin: 4px 0 6px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.bubble--md li { line-height: 1.5; }
+.bubble--md strong { font-weight: 700; }
+
+/* Step overflow / truncation — lives inside the bubble */
+.steps-overflow { margin-top: 0; }
+.steps-overflow.hidden { display: none; }
+.show-steps-btn {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--brand);
+  font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.show-steps-btn:hover { text-decoration: underline; }
+
+/* ── Routing buttons ───────────────────────────────────────── */
+.routing-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+.routing-btn {
+  text-align: left;
+  padding: 9px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  background: white;
+  color: var(--text-primary);
+  transition: background .15s, border-color .15s;
+  cursor: pointer;
+}
+.routing-btn:hover { background: var(--brand-light); border-color: var(--brand); color: var(--brand); }
+
 /* ── Input row ─────────────────────────────────────────────── */
 .chat-input-row {
   display: flex;
@@ -393,3 +463,20 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 }
 .chat-send:hover { background: var(--brand-dark); }
 .chat-send:disabled { background: var(--border); cursor: not-allowed; }
+
+/* ── Chat footer ───────────────────────────────────────────── */
+.chat-footer {
+  display: flex;
+  justify-content: center;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: white;
+  flex-shrink: 0;
+}
+.talk-to-human {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color .15s;
+}
+.talk-to-human:hover { color: var(--brand); text-decoration: underline; }
