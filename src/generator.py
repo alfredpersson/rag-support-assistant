@@ -18,12 +18,22 @@ _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 # Minimum reranker score for a source to be eligible for linking.
 # Cross-encoder scores below this are considered too uncertain to cite.
-CONFIDENCE_THRESHOLD = 1.0
+# Must be > RELEVANCE_SCORE_THRESHOLD (pipeline.py, currently 2.0) to keep
+# the low_confidence path reachable.
+CONFIDENCE_THRESHOLD = 5.0
 
 HEDGING_PHRASES = [
-    "i think", "i'm not sure", "i am not sure", "i believe",
-    "you may want to check", "you might want to", "it seems",
-    "might be", "not certain", "please verify", "double-check",
+    "i think",
+    "i'm not sure",
+    "i am not sure",
+    "i believe",
+    "you may want to check",
+    "you might want to",
+    "it seems",
+    "might be",
+    "not certain",
+    "please verify",
+    "double-check",
 ]
 
 
@@ -32,6 +42,7 @@ def _fallback(filename: str) -> str:
 
 
 # ── Pydantic output models ─────────────────────────────────────
+
 
 class GeneratorOutput(BaseModel):
     answer: str
@@ -55,30 +66,38 @@ class HighStakesOutput(BaseModel):
 
 # ── Lazy agent state ───────────────────────────────────────────
 
-_generator_agent:     Optional[Agent] = None
+_generator_agent: Optional[Agent] = None
 _self_critique_agent: Optional[Agent] = None
-_followup_agent:      Optional[Agent] = None
-_high_stakes_agent:   Optional[Agent] = None
+_followup_agent: Optional[Agent] = None
+_high_stakes_agent: Optional[Agent] = None
 
-_generator_prompt     = None
+_generator_prompt = None
 _self_critique_prompt = None
-_followup_prompt      = None
-_high_stakes_prompt   = None
+_followup_prompt = None
+_high_stakes_prompt = None
 
 
 def _get_generator_agent() -> Agent:
     global _generator_agent, _generator_prompt
     if _generator_agent is None:
-        _generator_prompt, text = get_prompt("wix-generator", _fallback("generator.txt"))
-        _generator_agent = Agent("openai:gpt-4o-mini", output_type=GeneratorOutput, system_prompt=text)
+        _generator_prompt, text = get_prompt(
+            "wix-generator", _fallback("generator.txt")
+        )
+        _generator_agent = Agent(
+            "openai:gpt-4o-mini", output_type=GeneratorOutput, system_prompt=text
+        )
     return _generator_agent
 
 
 def _get_self_critique_agent() -> Agent:
     global _self_critique_agent, _self_critique_prompt
     if _self_critique_agent is None:
-        _self_critique_prompt, text = get_prompt("wix-self-critique", _fallback("self_critique.txt"))
-        _self_critique_agent = Agent("openai:gpt-4o-mini", output_type=SelfCritiqueOutput, system_prompt=text)
+        _self_critique_prompt, text = get_prompt(
+            "wix-self-critique", _fallback("self_critique.txt")
+        )
+        _self_critique_agent = Agent(
+            "openai:gpt-4o-mini", output_type=SelfCritiqueOutput, system_prompt=text
+        )
     return _self_critique_agent
 
 
@@ -86,19 +105,26 @@ def _get_followup_agent() -> Agent:
     global _followup_agent, _followup_prompt
     if _followup_agent is None:
         _followup_prompt, text = get_prompt("wix-followup", _fallback("followup.txt"))
-        _followup_agent = Agent("openai:gpt-4o-mini", output_type=FollowUpOutput, system_prompt=text)
+        _followup_agent = Agent(
+            "openai:gpt-4o-mini", output_type=FollowUpOutput, system_prompt=text
+        )
     return _followup_agent
 
 
 def _get_high_stakes_agent() -> Agent:
     global _high_stakes_agent, _high_stakes_prompt
     if _high_stakes_agent is None:
-        _high_stakes_prompt, text = get_prompt("wix-high-stakes", _fallback("high_stakes.txt"))
-        _high_stakes_agent = Agent("openai:gpt-4o-mini", output_type=HighStakesOutput, system_prompt=text)
+        _high_stakes_prompt, text = get_prompt(
+            "wix-high-stakes", _fallback("high_stakes.txt")
+        )
+        _high_stakes_agent = Agent(
+            "openai:gpt-4o-mini", output_type=HighStakesOutput, system_prompt=text
+        )
     return _high_stakes_agent
 
 
 # ── Helpers ────────────────────────────────────────────────────
+
 
 def _build_context(chunks: List[dict]) -> str:
     return "\n\n".join(
@@ -125,6 +151,7 @@ def _has_hedging(text: str) -> bool:
 
 
 # ── Public API ─────────────────────────────────────────────────
+
 
 def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
     """
@@ -161,23 +188,28 @@ def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
 
     # ── 4. Self-critique ───────────────────────────────────────
     critique_message = (
-        f"User question: {query}\n\n"
-        f"Context:\n{context_blocks}\n\n"
-        f"Answer:\n{answer}"
+        f"User question: {query}\n\nContext:\n{context_blocks}\n\nAnswer:\n{answer}"
     )
     with generation_context("wix-self-critique", _self_critique_prompt):
         critique_result = _get_self_critique_agent().run_sync(critique_message)
     assessment = critique_result.output.assessment
-    print(f"[self_critique] assessment={assessment} reasoning={critique_result.output.reasoning!r}")
+    print(
+        f"[self_critique] assessment={assessment} reasoning={critique_result.output.reasoning!r}"
+    )
 
     # ── 5. Source link logic ───────────────────────────────────
     confident_sources = [
-        c for c in deduped
+        c
+        for c in deduped
         if c.get("article_title") and c["reranker_score"] >= CONFIDENCE_THRESHOLD
     ]
 
     if assessment == "CANNOT_ANSWER":
-        return answer, [], "cannot_answer"
+        cannot_answer_msg = (
+            "I wasn't able to find a clear answer to your question in our help content.\n\n"
+            "Would you like me to connect you with a support agent who can help?"
+        )
+        return cannot_answer_msg, [], "cannot_answer"
 
     if assessment == "PARTIALLY_ANSWERED":
         # 1 link – top confident source (most relevant to what was covered / most likely to fill the gap)
@@ -224,6 +256,8 @@ def generate_high_stakes(query: str, chunks: List[dict]) -> Tuple[str, List[str]
     parts.append(out.closing)
 
     answer = "\n\n".join(parts)
-    print(f"[high_stakes] retention_offer={bool(out.retention_offer)} context_summary={bool(out.context_summary)}")
+    print(
+        f"[high_stakes] retention_offer={bool(out.retention_offer)} context_summary={bool(out.context_summary)}"
+    )
 
     return answer, []  # high-stakes never cites sources

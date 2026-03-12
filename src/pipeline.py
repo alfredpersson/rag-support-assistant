@@ -7,7 +7,7 @@ from src.retriever import retrieve
 from src.reranker import rerank
 from src.generator import generate, generate_followup, generate_high_stakes
 
-RELEVANCE_SCORE_THRESHOLD = 0.0
+RELEVANCE_SCORE_THRESHOLD = 2.0
 
 _SUGGESTIONS = (
     "Here are some things I can help you with:\n"

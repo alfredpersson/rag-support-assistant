@@ -35,6 +35,7 @@ load_dotenv()
 
 # ── Judge agent (pydantic-ai) ──────────────────────────────────────────────
 
+
 class JudgeScores(BaseModel):
     faithfulness: int
     relevancy: int
@@ -66,6 +67,7 @@ def _get_judge_agent() -> Agent:
 
 # ── Retrieval helpers ──────────────────────────────────────────────────────
 
+
 def _retrieve_chunks(question: str, use_rerank: bool) -> list:
     if use_rerank:
         candidates = retrieve(question, top_k=20)
@@ -78,12 +80,47 @@ def _bottom5(rows: list, key: str) -> list:
     return sorted(rows, key=lambda r: r[key])[:5]
 
 
+# Known worst-performing synthetic queries — always included in the sample
+# so we can directly measure whether improvements fix these specific failures.
+_KNOWN_WORST_SYNTHETIC = {
+    "How can I manage inventory updates after creating purchase orders in the Wix dashboard?",
+    "How can I display a Cookie Banner on my Wix site to comply with privacy laws like GDPR and LGPD?",
+    "What steps can I take to ensure my Wix site complies with the CCPA regulations?",
+    "How can I use the Wix app to send invites for an upcoming event I am planning?",
+    "How can I set up installment payment options for my Wix Store using a payment provider?",
+    "How do I add a Facebook Comments box to my Wix site?",
+    "How do I customize the breadcrumbs layout on my Wix site?",
+}
+
+
+def _sample_rows(all_rows, n: int, pinned_questions: set, seed: int = 42) -> list:
+    """Return up to n rows, always including any row whose question is in pinned_questions."""
+    pinned = [r for r in all_rows if r["question"] in pinned_questions]
+    remaining = [r for r in all_rows if r["question"] not in pinned_questions]
+    n_random = max(0, n - len(pinned))
+    sampled = random.Random(seed).sample(remaining, min(n_random, len(remaining)))
+    return pinned + sampled
+
+
 # ── Phase 1 — Retrieval evaluation ────────────────────────────────────────
 
-def _eval_retrieval(dataset, split: str, use_rerank: bool) -> tuple[float, float, list]:
-    """Returns (mean_hr, mean_mrr, per_row_list)."""
+
+def _eval_retrieval(
+    dataset, split: str, use_rerank: bool, sample_n: int | None = None
+) -> tuple[float, float, list]:
+    """Returns (mean_hr, mean_mrr, per_row_list).
+
+    If sample_n is given, evaluate only that many rows. For the synthetic dataset
+    this pins the known worst queries and fills the remainder randomly (seed=42).
+    """
+    all_rows = list(dataset[split])
+    if sample_n is not None and len(all_rows) > sample_n:
+        rows = _sample_rows(all_rows, sample_n, _KNOWN_WORST_SYNTHETIC)
+    else:
+        rows = all_rows
+
     per_row = []
-    for row in dataset[split]:
+    for i, row in enumerate(rows, 1):
         question = row["question"]
         correct_ids = [str(aid) for aid in row["article_ids"]]
         chunks = _retrieve_chunks(question, use_rerank)
@@ -91,6 +128,8 @@ def _eval_retrieval(dataset, split: str, use_rerank: bool) -> tuple[float, float
         hr = max(hit_rate(retrieved_ids, cid) for cid in correct_ids)
         rr = max(reciprocal_rank(retrieved_ids, cid) for cid in correct_ids)
         per_row.append({"question": question, "hit_rate": hr, "rr": rr})
+        print(f"  retrieval [{i}/{len(rows)}]", end="\r", flush=True)
+    print()
     return (
         mean([r["hit_rate"] for r in per_row]),
         mean([r["rr"] for r in per_row]),
@@ -100,7 +139,10 @@ def _eval_retrieval(dataset, split: str, use_rerank: bool) -> tuple[float, float
 
 # ── Phase 2 — Generation evaluation (LLM-as-judge) ────────────────────────
 
-def _eval_generation(expert_rows, n: int = 50, seed: int = 42) -> tuple[float, float, list]:
+
+def _eval_generation(
+    expert_rows, n: int = 50, seed: int = 42
+) -> tuple[float, float, list]:
     """Returns (mean_faithfulness, mean_relevancy, per_row_list)."""
     sample = random.Random(seed).sample(list(expert_rows), n)
     per_row = []
@@ -111,7 +153,7 @@ def _eval_generation(expert_rows, n: int = 50, seed: int = 42) -> tuple[float, f
             answer = result["answer"]
             chunks = result.get("chunks_used", [])
             context_blocks = "\n\n".join(
-                f"[{j+1}] {c['text']}" for j, c in enumerate(chunks)
+                f"[{j + 1}] {c['text']}" for j, c in enumerate(chunks)
             )
             user_msg = (
                 f"Question: {question}\n\n"
@@ -119,11 +161,13 @@ def _eval_generation(expert_rows, n: int = 50, seed: int = 42) -> tuple[float, f
                 f"Answer: {answer}"
             )
             scores = _get_judge_agent().run_sync(user_msg).output
-            per_row.append({
-                "question": question,
-                "faithfulness": scores.faithfulness,
-                "relevancy": scores.relevancy,
-            })
+            per_row.append(
+                {
+                    "question": question,
+                    "faithfulness": scores.faithfulness,
+                    "relevancy": scores.relevancy,
+                }
+            )
         except Exception as e:
             print(f"  [WARN] row {i} failed: {e}")
         print(f"  [{i}/{n}] done", end="\r", flush=True)
@@ -137,15 +181,23 @@ def _eval_generation(expert_rows, n: int = 50, seed: int = 42) -> tuple[float, f
 
 # ── Results formatting ─────────────────────────────────────────────────────
 
+
 def _worst5_retrieval(per_row: list, metric_key: str) -> list[dict]:
-    return [{"question": r["question"], "score": r[metric_key]} for r in _bottom5(per_row, metric_key)]
+    return [
+        {"question": r["question"], "score": r[metric_key]}
+        for r in _bottom5(per_row, metric_key)
+    ]
 
 
 def _worst5_generation(per_row: list, metric_key: str) -> list[dict]:
-    return [{"question": r["question"], "score": r[metric_key]} for r in _bottom5(per_row, metric_key)]
+    return [
+        {"question": r["question"], "score": r[metric_key]}
+        for r in _bottom5(per_row, metric_key)
+    ]
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -169,24 +221,33 @@ def main():
     print(f"Expert rows: {len(expert_rows)}, Synthetic rows: {len(synthetic_rows)}")
 
     # --- Phase 1 ---
-    print("\n[Phase 1] Retrieval — ExpertWritten...")
-    expert_hr, expert_mrr, expert_per_row = _eval_retrieval(expert_ds, expert_split, use_rerank)
+    print("\n[Phase 1] Retrieval — ExpertWritten (200 rows)...")
+    expert_hr, expert_mrr, expert_per_row = _eval_retrieval(
+        expert_ds, expert_split, use_rerank
+    )
 
-    print(f"[Phase 1] Retrieval — Synthetic ({len(synthetic_rows)} rows)...")
-    synthetic_hr, synthetic_mrr, synthetic_per_row = _eval_retrieval(synthetic_ds, synthetic_split, use_rerank)
+    SYNTHETIC_SAMPLE = 200
+    print(
+        f"\n[Phase 1] Retrieval — Synthetic (sample {SYNTHETIC_SAMPLE} of {len(synthetic_rows)})..."
+    )
+    synthetic_hr, synthetic_mrr, synthetic_per_row = _eval_retrieval(
+        synthetic_ds, synthetic_split, use_rerank, sample_n=SYNTHETIC_SAMPLE
+    )
 
     # --- Phase 2 ---
     print("\n[Phase 2] Generation — 50 expert questions (LLM-as-judge)...")
-    mean_faithfulness, mean_relevancy, gen_per_row = _eval_generation(expert_rows, n=50, seed=42)
+    mean_faithfulness, mean_relevancy, gen_per_row = _eval_generation(
+        expert_rows, n=50, seed=42
+    )
 
     # --- Bottom-5 per metric ---
     worst = {
-        "expert_hit_rate":     _worst5_retrieval(expert_per_row,   "hit_rate"),
-        "expert_mrr":          _worst5_retrieval(expert_per_row,   "rr"),
-        "synthetic_hit_rate":  _worst5_retrieval(synthetic_per_row, "hit_rate"),
-        "synthetic_mrr":       _worst5_retrieval(synthetic_per_row, "rr"),
-        "faithfulness":        _worst5_generation(gen_per_row,     "faithfulness"),
-        "relevancy":           _worst5_generation(gen_per_row,     "relevancy"),
+        "expert_hit_rate": _worst5_retrieval(expert_per_row, "hit_rate"),
+        "expert_mrr": _worst5_retrieval(expert_per_row, "rr"),
+        "synthetic_hit_rate": _worst5_retrieval(synthetic_per_row, "hit_rate"),
+        "synthetic_mrr": _worst5_retrieval(synthetic_per_row, "rr"),
+        "faithfulness": _worst5_generation(gen_per_row, "faithfulness"),
+        "relevancy": _worst5_generation(gen_per_row, "relevancy"),
     }
 
     # --- Results dict ---
@@ -210,7 +271,9 @@ def main():
         "worst5_queries": worst,
     }
 
-    filename = "results_reranked.json" if use_rerank else "results_no_rerank.json"
+    filename = (
+        "results_baseline.json" if use_rerank else "results_baseline_no_rerank.json"
+    )
     output_path = os.path.join(os.path.dirname(__file__), filename)
     with open(output_path, "w") as f:
         json.dump(results, f, indent=2)
@@ -230,12 +293,12 @@ def main():
     print(f"  Relevancy    : {mean_relevancy:.4f} / 5")
 
     label_map = {
-        "expert_hit_rate":    "Expert Hit Rate",
-        "expert_mrr":         "Expert MRR",
+        "expert_hit_rate": "Expert Hit Rate",
+        "expert_mrr": "Expert MRR",
         "synthetic_hit_rate": "Synthetic Hit Rate",
-        "synthetic_mrr":      "Synthetic MRR",
-        "faithfulness":       "Faithfulness",
-        "relevancy":          "Relevancy",
+        "synthetic_mrr": "Synthetic MRR",
+        "faithfulness": "Faithfulness",
+        "relevancy": "Relevancy",
     }
     print("\n--- Worst 5 queries per metric ---")
     for key, entries in worst.items():

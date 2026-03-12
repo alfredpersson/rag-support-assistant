@@ -4,7 +4,7 @@ from typing import List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.rate_limit import RateLimitExceeded
 from src.pipeline import run
@@ -53,8 +53,18 @@ app.add_middleware(
 )
 
 
+MAX_QUESTION_LENGTH = 500
+
+
 class AskRequest(BaseModel):
     question: str
+
+    @field_validator("question")
+    @classmethod
+    def validate_question_length(cls, v: str) -> str:
+        if len(v) > MAX_QUESTION_LENGTH:
+            raise ValueError(f"Question exceeds maximum length of {MAX_QUESTION_LENGTH} characters.")
+        return v
 
 
 class AskResponse(BaseModel):
