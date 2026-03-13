@@ -10,16 +10,13 @@ Chunking pipeline per article:
 """
 
 import re
-import os
 
 import tiktoken
 import chromadb
 from sentence_transformers import SentenceTransformer
 from datasets import load_dataset
 
-COLLECTION_NAME = "wix_kb"
-CHROMA_PATH = os.path.join(os.path.dirname(__file__), "..", "chroma_db")
-EMBED_MODEL = "all-MiniLM-L6-v2"
+from src.config import EMBED_MODEL, COLLECTION_NAME, CHROMA_PATH
 ENCODING = "cl100k_base"
 MIN_TOKENS = 50
 MAX_TOKENS = 300

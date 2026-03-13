@@ -1,12 +1,9 @@
-import os
 from typing import List
 
 import chromadb
 from sentence_transformers import SentenceTransformer
 
-COLLECTION_NAME = "wix_kb"
-CHROMA_PATH = os.path.join(os.path.dirname(__file__), "..", "chroma_db")
-EMBED_MODEL = "all-MiniLM-L6-v2"
+from src.config import EMBED_MODEL, COLLECTION_NAME, CHROMA_PATH
 
 _model: SentenceTransformer | None = None
 _collection = None
@@ -23,7 +20,13 @@ def _get_collection():
     global _collection
     if _collection is None:
         client = chromadb.PersistentClient(path=CHROMA_PATH)
-        _collection = client.get_collection(COLLECTION_NAME)
+        try:
+            _collection = client.get_collection(COLLECTION_NAME)
+        except ValueError:
+            raise RuntimeError(
+                f"ChromaDB collection '{COLLECTION_NAME}' not found. "
+                f"Run 'uv run python src/ingest.py' before starting the API."
+            )
     return _collection
 
 

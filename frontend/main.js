@@ -300,7 +300,13 @@ function handleTeamSelection(teamLabel) {
     ? `There ${info.agents === 1 ? 'is' : 'are'} **${info.agents} agent${info.agents !== 1 ? 's' : ''}** available on the **${key}** team with an estimated wait of **${info.wait}**.`
     : `No agents are currently available on the **${key}** team.`;
 
-  appendBotText(`${availability}\n\nWhen you're ready, a support specialist will join this chat. In the meantime, feel free to keep asking me questions!`);
+  appendBotText(`${availability}\n\nA support specialist will join this chat shortly.`);
+  appendBotText(`**Demo note:** This is a demo — in production, this would hand off to your live chat system. The conversation ends here.`);
+
+  // Disable further input after handoff
+  input.disabled = true;
+  sendBtn.disabled = true;
+  input.placeholder = 'Chat handed off to support agent';
 }
 
 // ── "Talk to a person" flow ────────────────────────────────────

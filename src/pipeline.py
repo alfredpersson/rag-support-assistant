@@ -94,7 +94,7 @@ def run(question: str) -> dict:
         return {
             "answer": followup,
             "sources": [],
-            "chunks_used": [],
+            "chunks_used": chunks,
             "routing": "followup",
         }
 

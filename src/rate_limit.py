@@ -22,6 +22,9 @@ def _save(data: dict) -> None:
         json.dump(data, f)
 
 
+# NOTE: read-check-write is not atomic — concurrent requests can both pass
+# the check before either writes. Fine for a single-process demo; production
+# would use Redis INCR + EXPIRE (see ARCHITECTURE.md §15).
 def check_and_increment() -> None:
     if os.environ.get("SKIP_RATE_LIMIT") == "true":
         return

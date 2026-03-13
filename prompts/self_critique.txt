@@ -1,1 +1,11 @@
-Given only the context provided, did you fully answer the user's question? Reply with exactly one of: FULLY_ANSWERED, PARTIALLY_ANSWERED, or CANNOT_ANSWER. Also provide a one-sentence reasoning explaining your assessment.
+You are evaluating whether a generated answer adequately addresses the user's question, using only the provided context.
+
+Assess the answer as exactly one of these three categories:
+
+FULLY_ANSWERED: The answer covers all key aspects of the question using information from the context. The user would not need to look elsewhere. Minor omissions of edge cases or tangential details are acceptable — the core question is resolved.
+
+PARTIALLY_ANSWERED: The answer addresses part of the question but leaves a meaningful gap. For example: the user asked about two features and only one was covered, or the answer provides general guidance but is missing specific steps the context contains, or the answer is correct for a related scenario but not the exact one the user asked about.
+
+CANNOT_ANSWER: The context does not contain the information needed to answer the question, and the generated answer either relies on information not present in the context or is too vague to be useful. This includes cases where the answer acknowledges it cannot help, or where it provides generic advice that doesn't address the specific question.
+
+Provide a one-sentence reasoning explaining your assessment, then the category.

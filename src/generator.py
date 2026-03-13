@@ -22,19 +22,6 @@ _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 # the low_confidence path reachable.
 CONFIDENCE_THRESHOLD = 5.0
 
-HEDGING_PHRASES = [
-    "i think",
-    "i'm not sure",
-    "i am not sure",
-    "i believe",
-    "you may want to check",
-    "you might want to",
-    "it seems",
-    "might be",
-    "not certain",
-    "please verify",
-    "double-check",
-]
 
 
 def _fallback(filename: str) -> str:
@@ -145,11 +132,6 @@ def _dedupe_chunks_by_source(chunks: List[dict]) -> List[dict]:
     return result
 
 
-def _has_hedging(text: str) -> bool:
-    lower = text.lower()
-    return any(phrase in lower for phrase in HEDGING_PHRASES)
-
-
 # ── Public API ─────────────────────────────────────────────────
 
 
@@ -212,15 +194,11 @@ def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
         return cannot_answer_msg, [], "cannot_answer"
 
     if assessment == "PARTIALLY_ANSWERED":
-        # 1 link – top confident source (most relevant to what was covered / most likely to fill the gap)
+        # 1 link – top confident source, as a starting point to fill the gap
         sources = [confident_sources[0]["article_title"]] if confident_sources else []
         return answer, sources, "answered"
 
-    # FULLY_ANSWERED
-    if not _has_hedging(answer):
-        return answer, [], "answered"
-
-    # FULLY_ANSWERED but hedging present — up to 2 distinct sources
+    # FULLY_ANSWERED — up to 2 source links ("read more" for the user)
     sources = [c["article_title"] for c in confident_sources[:2]]
     return answer, sources, "answered"
 

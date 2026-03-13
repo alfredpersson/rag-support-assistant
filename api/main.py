@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from typing import List
 
@@ -94,6 +95,7 @@ def ask(request: AskRequest):
     except RateLimitExceeded as e:
         raise HTTPException(status_code=429, detail=str(e))
     except Exception:
+        logging.getLogger("uvicorn.error").exception("Pipeline error for question: %s", request.question)
         raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 
