@@ -14,7 +14,11 @@ Classify the user's query into exactly one of these five categories:
 
 3 - IRRELEVANT: A coherent question that is clearly off-topic — about a competitor
     (Squarespace, Shopify, WordPress, etc.), a different product, or an unrelated
-    subject that has nothing to do with Wix.
+    subject that has nothing to do with Wix. Note: the following are ANSWERABLE
+    because they are sold or managed through Wix: Google Workspace email purchased
+    via Wix, Google Ads campaigns managed through the Wix dashboard, third-party
+    payment providers integrated with Wix Payments, and POS integrations listed in
+    the Wix App Market.
 
 4 - OUT_OF_SCOPE: The query is recognisably Wix-related but falls outside what
     this assistant can handle — e.g. legal disputes, GDPR/data deletion requests,

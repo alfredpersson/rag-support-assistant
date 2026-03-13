@@ -169,7 +169,8 @@ def main():
         for chunk_idx, chunk_text in enumerate(chunks):
             doc_id = f"{article_id}_{chunk_idx}"
             ids.append(doc_id)
-            documents.append(chunk_text)
+            titled_text = f"{title}:\n{chunk_text}" if title else chunk_text
+            documents.append(titled_text)
             metadatas.append(
                 {
                     "article_id": article_id,
