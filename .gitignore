@@ -19,4 +19,7 @@ chroma_db/
 
 *.md
 !README.md
+!ARCHITECTURE.md
+!eval/README.md
+!eval/EXPERIMENTS.md
 

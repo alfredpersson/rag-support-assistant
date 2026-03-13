@@ -1,20 +1,198 @@
 # RAG Support Assistant
 
-A RAG (Retrieval-Augmented Generation) pipeline over the [Wix Help Center dataset](https://huggingface.co/datasets/Wix/WixQA). Built from scratch — no LangChain or LlamaIndex.
+A customer support RAG pipeline built over the [Wix Help Center dataset](https://huggingface.co/datasets/Wix/WixQA). Every stage — chunking, retrieval, reranking, classification, generation, and evaluation — is implemented from scratch so the design decisions are visible and auditable.
+
+The focus is on what happens when the pipeline *can't* confidently answer: when retrieval returns nothing useful, when the model hedges, or when the user is upset and asking to cancel their account. Each of these cases has a specific, designed response path rather than a generic fallback.
+
+In a support context, these failure cases are where the business impact lives. A bot that handles a cancellation request the same way it handles a how-to question will lose that customer. A bot that confidently presents a wrong answer erodes trust faster than having no bot at all. And a bot that says "I don't know" with no next step is a dead end that drives a support ticket anyway. The failure handling in this pipeline is designed to deflect tickets when the bot can help, preserve trust when it can't, and route to a human immediately when the situation calls for it.
+
+## Limitations
+
+- **No multi-turn conversation.** The pipeline is completely stateless — each request is independent with no memory of previous messages. For a production support bot, conversation context is table stakes (follow-up questions, pronoun resolution, etc.). This is a deliberate scope boundary for the demo; the architecture would need a session store and context window to support it.
+- **Connect-to-agent is a demo stub.** The agent handoff flow shows mock team availability but does not actually connect to a live agent. In production this would integrate with a live chat system.
+
+## How it works
+
+Every incoming question is classified into one of five categories — **answerable**, **nonsense**, **irrelevant**, **out-of-scope**, or **high-stakes** — and routed to a purpose-built handler. Answerable and high-stakes queries go through retrieval; the rest get static responses immediately without wasting compute.
+
+For queries that go through retrieval, the pipeline applies two confidence gates before presenting an answer:
+
+1. **Relevance gate** — if the cross-encoder reranker's top score is below 2.0, the retrieved results aren't good enough. Instead of generating from weak context, the bot asks a clarifying follow-up question.
+2. **Confidence gate** — if the top score is below 5.0, the answer is shown but the bot signals that it isn't fully sure and asks the user to be more specific.
+
+After generation, a **self-critique** step assesses whether the answer fully, partially, or cannot address the question. This determines whether to offer human escalation and how much confidence to convey to the user.
+
+**High-stakes queries** (cancellations, billing disputes, complaints) bypass normal generation entirely. They get an empathetic acknowledgment with a structured retention offer and escalation path — because a standard RAG answer to "I want to cancel my account" is the wrong response.
+
+## Failure states
+
+| Situation | Response | Reasoning |
+|---|---|---|
+| Retrieval finds nothing relevant | Clarifying follow-up question | Avoids hallucinating from weak context; keeps the conversation going |
+| Low retrieval confidence | Best-effort answer + "could you be more specific?" | Transparent about uncertainty rather than presenting a weak answer with full confidence |
+| Self-critique: CANNOT_ANSWER | "I couldn't find an answer" + connect-to-agent button | Immediate escalation path instead of a vague hedge |
+| Self-critique: PARTIALLY_ANSWERED | Answer + 1 source link | User gets a starting point to fill the gap |
+| Self-critique: FULLY_ANSWERED | Answer + up to 2 source links | Confident answer with "read more" links to the full articles |
+| High-stakes query | Empathetic acknowledgment + retention offer + escalation | Sensitive queries need tone and structure control, not a help article |
+| Out-of-scope query | Escalation offer | Doesn't pretend to help with things it can't handle |
+| Nonsense or irrelevant query | Polite deflection + topic suggestions | Saves retrieval and generation compute |
+| Rate limit exceeded | HTTP 429, "try again tomorrow" in the widget | Prevents runaway API cost |
+
+These are implemented in [`src/pipeline.py`](src/pipeline.py) and [`src/generator.py`](src/generator.py). The frontend ([`frontend/main.js`](frontend/main.js)) renders each routing state differently — source pills, connect-agent buttons, suggestion chips.
+
+## Evaluation
+
+The pipeline is evaluated against the [WixQA benchmark](https://huggingface.co/datasets/Wix/WixQA) with retrieval and generation scored separately, so failures can be diagnosed to the right stage. I ran 7 experiments across retrieval strategy, query expansion, classifier tuning, and chunk enrichment. The best configuration is **title-prepended embeddings + cross-encoder reranking**.
+
+| Metric | Score | What it measures |
+|---|---|---|
+| Expert Hit Rate @ 5 | **0.71** | Correct article in top-5 for human-written questions |
+| Expert MRR | **0.51** | How high the correct article ranks |
+| Faithfulness | **4.80 / 5** | LLM-as-judge: answer grounded in retrieved context |
+| Relevancy | **4.76 / 5** | LLM-as-judge: answer addresses what was asked |
+
+The expert hit rate ceiling at 0.71 is a genuine finding: the remaining 29% are KB coverage gaps and vocabulary mismatches that persisted across all seven experiments, including approaches I tried and reverted (HyDE, always-on query expansion, larger candidate pools). The most impactful next steps would be hybrid retrieval (dense + BM25) and a larger embedding model.
+
+**Sample size caveat:** Generation scores are based on 50 questions and retrieval on 200. These are sufficient to compare configurations and identify failure patterns, but too small for tight confidence intervals — individual metric values could shift by ±0.05 with a different sample. See [evaluation methodology](eval/README.md) for more detail.
+
+Details: [experiment log](eval/EXPERIMENTS.md) and [evaluation methodology](eval/README.md).
+
+## Pipeline
+
+```mermaid
+flowchart TD
+
+  %% ── Ingest (one-time) ──────────────────────────────────────
+  subgraph INGEST["ingest.py  (one-time)"]
+    direction TB
+    DS["Wix/WixQA dataset\n(HuggingFace)"]
+    CHUNK["Chunker\n1 · split on \\n\\n\n2 · merge <50 tok\n3 · split >300 tok at sentences\n4 · 50-token sliding overlap"]
+    EMBED_I["Embed chunks\nall-MiniLM-L6-v2"]
+    CHROMA[("ChromaDB\ncollection: wix_kb")]
+
+    DS -->|"title + body"| CHUNK --> EMBED_I --> CHROMA
+  end
+
+  %% ── Runtime ────────────────────────────────────────────────
+  USER["User question"]
+  API["FastAPI  POST /ask"]
+  RL{"Rate limit\n≤100 req/day"}
+  CLF{"Classifier\ngpt-4o-mini\n5 categories"}
+  QR["Query rewriter\ngpt-4o-mini\n(short queries only)"]
+  EMBED_R["Embed query\nall-MiniLM-L6-v2"]
+  VSEARCH["Vector search\nChromaDB · top-20"]
+  RERANK["Cross-encoder reranker\nms-marco-MiniLM-L6-v2\ntop-5"]
+  REL{"Relevance gate\nscore ≥ 2.0?"}
+  GEN["Generator\ngpt-4o-mini"]
+  CONF{"Confidence gate\nscore ≥ 5.0?"}
+  CRITIQUE["Self-critique\nFULLY / PARTIALLY / CANNOT"]
+  FOLLOWUP["Follow-up question\nask for clarification"]
+  HS["High-stakes response\nempathy + escalation"]
+  RESP["answer + sources + routing"]
+  ERR429["HTTP 429"]
+
+  USER --> API --> RL
+  RL -- "limit exceeded" --> ERR429
+  RL -- "ok" --> CLF
+
+  CLF -- "answerable" --> QR
+  CLF -- "nonsense / irrelevant" --> RESP
+  CLF -- "out of scope" --> RESP
+  CLF -- "high-stakes" --> QR
+
+  QR --> EMBED_R --> VSEARCH
+  VSEARCH --> CHROMA
+  CHROMA --> VSEARCH
+  VSEARCH -- "20 candidates" --> RERANK
+  RERANK -- "top 5" --> REL
+
+  REL -- "no relevant results" --> FOLLOWUP --> RESP
+  REL -- "high-stakes" --> HS --> RESP
+  REL -- "yes" --> GEN --> CONF
+
+  CONF -- "low confidence" --> RESP
+  CONF -- "confident" --> CRITIQUE
+
+  CRITIQUE -- "CANNOT_ANSWER" --> RESP
+  CRITIQUE -- "PARTIALLY / FULLY" --> RESP
+
+  RESP --> USER
+
+  classDef store     fill:#e8f4fd,stroke:#3b82f6,color:#1e3a5f
+  classDef llm       fill:#fef3c7,stroke:#f59e0b,color:#78350f
+  classDef gate      fill:#f3f4f6,stroke:#6b7280,color:#111827
+  classDef endpoint  fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef io        fill:#dcfce7,stroke:#16a34a,color:#14532d
+
+  class CHROMA store
+  class CLF,QR,GEN,CRITIQUE,FOLLOWUP,HS llm
+  class RL,REL,CONF gate
+  class API endpoint
+  class USER,RESP io
+```
 
 ## Stack
 
-| Layer | Tech |
-|---|---|
-| Dataset | `Wix/WixQA` via HuggingFace `datasets` |
-| Chunking | Paragraph split + merge/split heuristics + 50-token sliding overlap |
-| Embedding | `sentence-transformers` `all-MiniLM-L6-v2` |
-| Vector store | ChromaDB (persistent, local) |
-| Reranker | `cross-encoder/ms-marco-MiniLM-L6-v2` |
-| LLM | OpenAI `gpt-4o-mini` via `pydantic-ai` (structured outputs) |
-| API | FastAPI + CORS + static file serving |
-| Frontend | Vanilla HTML/CSS/JS chat widget |
-| Observability | Langfuse (traces + prompt versioning) |
+| Layer | Tech | What it does |
+|---|---|---|
+| Chunking | Paragraph split + merge/split heuristics + 50-token overlap | Breaks help articles into retrievable pieces while preserving natural structure |
+| Embedding | `sentence-transformers/all-MiniLM-L6-v2` (local) | Converts text to vectors for similarity search, runs locally with no API cost |
+| Vector store | ChromaDB (persistent, local) | Stores and searches article chunks by similarity, zero infrastructure to set up |
+| Reranker | `cross-encoder/ms-marco-MiniLM-L6-v2` | Two-pass search: fast scan of all articles, then precise re-scoring of top candidates so the right answer surfaces even when the user's phrasing doesn't match the article's wording |
+| LLM | OpenAI `gpt-4o-mini` via `pydantic-ai` | Generates answers, classifies queries, and self-critiques responses with structured output |
+| API | FastAPI + CORS + static files | Serves the pipeline and frontend; preloads models at startup to eliminate cold-start delays |
+| Frontend | Vanilla HTML/CSS/JS chat widget | Renders each response type differently: source links, escalation buttons, suggestion chips |
+| Observability | Langfuse (traces + prompt versioning) | Shows exactly what happened on every request; prompts can be updated without code changes |
+
+For detailed reasoning behind every technical decision, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## What changes for production
+
+| Area | Demo | Production |
+|---|---|---|
+| Vector store | ChromaDB (local file) | pgvector or managed service (Pinecone, Qdrant) |
+| Retrieval | Dense only | Hybrid: dense + BM25 with RRF |
+| Embeddings | Local `all-MiniLM-L6-v2` | Embedding API or domain-adapted model |
+| Query expansion | 8-word gated rewriter | Selective expansion based on learned heuristics |
+| Classification | LLM call (gpt-4o-mini) | Fine-tuned small classifier, <50 ms |
+| Self-critique | In hot path | Async evaluation layer (RAGAS) |
+| Rate limiting | JSON file | Redis `INCR` + `EXPIRE`, per-user |
+| Prompt caching | Process lifetime | TTL-based (60–300 s), A/B tested via Langfuse datasets |
+| Agent init | Lazy, per-module | Startup lifespan event, shared across workers |
+| High-stakes | Fictional retention, mock queue | CRM-driven offers, real ticketing / live chat integration |
+| Conversation context | Stateless (single turn) | Sliding window stored in Redis, session ID on API |
+| Streaming | None | Server-Sent Events, token-by-token |
+| Frontend | Vanilla JS widget | React + TypeScript, embedded via `<script>` |
+| Auth | None | API key or OAuth, per-user quotas |
+| Observability | Langfuse traces | Langfuse + structured logging + latency metrics per stage |
+
+## Project structure
+
+```
+src/
+  ingest.py          # Dataset loading, chunking, ChromaDB population
+  retriever.py       # Query embedding + vector search (top-20 candidates)
+  reranker.py        # Cross-encoder reranking → top-5 chunks
+  classifier.py      # 5-category query classifier (pydantic-ai)
+  query_rewriter.py  # Query expansion for short queries (<8 words)
+  generator.py       # Answer generation, self-critique, confidence signaling
+  pipeline.py        # Orchestrates the full request pipeline
+  rate_limit.py      # Daily 100-request cap (rate_limit.json)
+  prompts.py         # Langfuse prompt fetching + OTel prompt linkage
+prompts/
+  *.txt              # Prompt source files (version-controlled)
+  seed.py            # Registers prompts with Langfuse
+api/
+  main.py            # FastAPI app with CORS and static file mount
+frontend/
+  index.html         # Mock SaaS dashboard + chat widget
+  style.css          # All styles (CSS variables, no framework)
+  main.js            # Widget logic, markdown rendering, routing handlers
+eval/
+  evaluate.py        # Retrieval + generation evaluation against WixQA benchmark
+  EXPERIMENTS.md     # Full experiment log with results and root cause analysis
+  README.md          # Evaluation methodology and metric definitions
+```
 
 ## Setup
 
@@ -24,12 +202,12 @@ uv venv && uv sync
 
 # Set environment variables
 cp .env.example .env
-# Fill in OPENAI_API_KEY and optionally LANGFUSE_* keys
+# Fill in OPENAI_API_KEY (required) and optionally LANGFUSE_* keys
 
-# Ingest the dataset (one-time, idempotent)
+# Ingest the dataset (one-time, idempotent — skips if already populated)
 uv run python src/ingest.py
 
-# Register prompts with Langfuse (run once, or after any prompt edit)
+# Register prompts with Langfuse (optional — run once, or after any prompt edit)
 uv run python prompts/seed.py
 
 # Start the API + frontend
@@ -37,26 +215,13 @@ uv run uvicorn api.main:app --reload
 # Visit http://localhost:8000
 ```
 
-## Environment Variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | Yes | OpenAI API key |
-| `LANGFUSE_PUBLIC_KEY` | No | Langfuse public key for tracing |
-| `LANGFUSE_SECRET_KEY` | No | Langfuse secret key for tracing |
-| `LANGFUSE_HOST` | No | Langfuse host (defaults to cloud) |
-
-Tracing and prompt versioning degrade gracefully if Langfuse keys are not set — the pipeline falls back to local prompt files.
-
 ## API
 
-**Health check:**
 ```bash
+# Health check
 curl http://localhost:8000/health
-```
 
-**Ask a question:**
-```bash
+# Ask a question
 curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "How do I connect a custom domain to my Wix site?"}'
@@ -71,138 +236,32 @@ Response:
 }
 ```
 
-**Rate limit:** 100 requests per day. Returns HTTP 429 when exceeded.
-
-**`routing` field values:**
+The `routing` field tells the frontend how to render the response:
 
 | Value | Meaning |
 |---|---|
 | `answered` | Full pipeline ran; answer grounded in retrieved content |
-| `followup` | Retrieval found nothing; bot asks a clarifying question |
-| `low_confidence` | Reranker scores too low; answer shown but no sources, clarification requested |
-| `cannot_answer` | Self-critique determined context cannot answer the question; connect-agent button shown |
-| `high_stakes` | Cancellation / dispute / complaint; empathetic response + escalation offer |
-| `out_of_scope` | Wix-related but beyond assistant scope; escalation offered |
-| `irrelevant` | Off-topic question; suggestions shown |
-| `nonsense` | No discernible intent; suggestions shown |
+| `followup` | Retrieval found nothing useful; bot asks a clarifying question |
+| `low_confidence` | Reranker scores too low; answer shown without sources |
+| `cannot_answer` | Self-critique determined context can't answer; escalation offered |
+| `high_stakes` | Cancellation/dispute/complaint; empathetic response + escalation |
+| `out_of_scope` | Beyond assistant scope; escalation offered |
+| `irrelevant` | Off-topic; topic suggestions shown |
+| `nonsense` | No discernible intent; topic suggestions shown |
 
-## Evaluation
+## Environment variables
 
-```bash
-uv run python eval/evaluate.py
-```
+| Variable | Required | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | Yes | OpenAI API key |
+| `LANGFUSE_PUBLIC_KEY` | No | Langfuse public key for tracing |
+| `LANGFUSE_SECRET_KEY` | No | Langfuse secret key for tracing |
+| `LANGFUSE_HOST` | No | Langfuse host (defaults to cloud) |
 
-Runs 10 Wix-domain Q&A pairs through the pipeline and scores each answer by keyword overlap. Results written to `eval/results.json`.
+Tracing and prompt versioning degrade gracefully if Langfuse keys are not set — the pipeline falls back to local prompt files.
 
-## Project Structure
+## Further reading
 
-```
-src/
-  ingest.py          # Dataset loading, chunking, ChromaDB population
-  retriever.py       # Query embedding + vector search (top-20 candidates)
-  reranker.py        # Cross-encoder reranking → top-5 chunks
-  classifier.py      # 5-category query classifier (pydantic-ai)
-  query_rewriter.py  # Query expansion for short queries (<8 words)
-  generator.py       # Answer generation, self-critique, source link logic
-  pipeline.py        # Orchestrates the full request pipeline
-  rate_limit.py      # Daily 100-request cap (rate_limit.json)
-  prompts.py         # Langfuse prompt fetching + OTel prompt linkage
-prompts/
-  *.txt              # Prompt source files (version-controlled)
-  seed.py            # Registers prompts with Langfuse
-api/
-  main.py            # FastAPI app with CORS and static file mount
-frontend/
-  index.html         # Mock SaaS dashboard + chat widget
-  style.css          # All styles (CSS variables, no framework)
-  main.js            # Widget logic, markdown rendering, routing handlers
-eval/
-  evaluate.py        # 10 Q&A pairs, keyword scoring
-chroma_db/           # Persisted vector store (created on first ingest)
-```
-
-## Pipeline
-
-```mermaid
-flowchart TD
-
-  %% ── Ingest (one-time) ──────────────────────────────────────
-  subgraph INGEST["ingest.py  (one-time)"]
-    direction TB
-    DS["Wix/WixQA dataset\n(HuggingFace)"]
-    CHUNK["Chunker\n1 · split on \\n\\n\n2 · merge &lt;50 tok\n3 · split &gt;300 tok at sentences\n4 · 50-token sliding overlap"]
-    EMBED_I["Embed chunks\nall-MiniLM-L6-v2"]
-    CHROMA[("ChromaDB\ncollection: wix_kb")]
-
-    DS -->|article body| CHUNK --> EMBED_I --> CHROMA
-  end
-
-  %% ── Runtime ────────────────────────────────────────────────
-  USER["User question"]
-  API["FastAPI  POST /ask"]
-  RL{"Rate limit\n≤100 req/day\nrate_limit.json"}
-  CLF{"Classifier\ngpt-4o-mini\n5 categories"}
-  QR["Query rewriter\ngpt-4o-mini\n(short query only, &lt;8 words)"]
-  EMBED_R["Embed query\nall-MiniLM-L6-v2"]
-  VSEARCH["Vector search\nChromaDB · top-k=20"]
-  RERANK["Cross-encoder reranker\nms-marco-MiniLM-L6-v2\ntop-k=5"]
-  REL{"Score ≥ 0.0?"}
-  GEN["Generator\ngpt-4o-mini\ncontext in system prompt"]
-  CONF{"top score ≥ 1.0?"}
-  CRITIQUE["Self-critique\ngpt-4o-mini\nFULLY / PARTIALLY / CANNOT"]
-  FOLLOWUP["Follow-up question\ngpt-4o-mini\nask for clarification"]
-  HS["High-stakes response\ngpt-4o-mini\nempathy + retention offer"]
-  RESP["answer + sources + routing"]
-  ERR429["HTTP 429"]
-
-  USER --> API
-  API --> RL
-  RL -- "limit exceeded" --> ERR429
-  RL -- "ok" --> CLF
-
-  CLF -- "1 · answerable" --> QR
-  CLF -- "2 · nonsense" --> RESP
-  CLF -- "3 · irrelevant" --> RESP
-  CLF -- "4 · out of scope" --> RESP
-  CLF -- "5 · high-stakes" --> QR
-
-  QR --> EMBED_R --> VSEARCH
-  VSEARCH --> CHROMA
-  CHROMA --> VSEARCH
-  VSEARCH -- "20 candidates" --> RERANK
-  RERANK -- "top 5" --> REL
-
-  REL -- "answerable · no results" --> FOLLOWUP --> RESP
-  REL -- "high-stakes" --> HS --> RESP
-  REL -- "answerable · yes" --> GEN --> CONF
-
-  CONF -- "no · low confidence" --> RESP
-  CONF -- "yes" --> CRITIQUE
-
-  CRITIQUE -- "CANNOT_ANSWER" --> RESP
-  CRITIQUE -- "PARTIALLY_ANSWERED\n1 source link" --> RESP
-  CRITIQUE -- "FULLY_ANSWERED\nno hedging → 0 links\nhedging → ≤2 links" --> RESP
-
-  RESP --> USER
-
-  %% ── Styles ─────────────────────────────────────────────────
-  classDef store     fill:#e8f4fd,stroke:#3b82f6,color:#1e3a5f
-  classDef llm       fill:#fef3c7,stroke:#f59e0b,color:#78350f
-  classDef gate      fill:#f3f4f6,stroke:#6b7280,color:#111827
-  classDef endpoint  fill:#ede9fe,stroke:#7c3aed,color:#3b0764
-  classDef io        fill:#dcfce7,stroke:#16a34a,color:#14532d
-
-  class CHROMA store
-  class CLF,QR,GEN,CRITIQUE,FOLLOWUP,HS llm
-  class RL,REL,CONF gate
-  class API endpoint
-  class USER,RESP io
-```
-
-## Notes
-
-- **Chunking**: Articles are split on `\n\n`, short paragraphs (<50 tokens) are merged with neighbors, long chunks (>300 tokens) are split at sentence boundaries targeting ~200 tokens, then a 50-token overlap is prepended to each subsequent chunk.
-- **Idempotency**: Re-running `ingest.py` skips population if the ChromaDB collection already contains documents.
-- **Prompt versioning**: Prompts live in `prompts/*.txt` and are registered with Langfuse via `prompts/seed.py`. The pipeline fetches the `production`-labelled version at runtime with a local fallback if Langfuse is unreachable.
-- **Self-critique**: After generating an answer, a second LLM call assesses whether the context fully, partially, or cannot answer the question. This drives source link inclusion rather than a binary faithfulness caveat.
-- **Architecture decisions**: See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for detailed reasoning behind every design choice and a full production readiness breakdown.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — reasoning behind every technical decision, what evaluation revealed about each choice, and what would change for production
+- **[eval/EXPERIMENTS.md](eval/EXPERIMENTS.md)** — full experiment log: 7 experiments with results, root cause analysis, and detailed failure breakdowns for approaches that were tried and reverted
+- **[eval/README.md](eval/README.md)** — evaluation methodology, metric definitions, and known limitations of LLM-as-judge scoring
