@@ -11,6 +11,7 @@ Categories
 5  HIGH_STAKES  – cancellation, deletion, billing dispute, or a real user complaint
 """
 
+import logging
 from enum import IntEnum
 from pathlib import Path
 from typing import Optional
@@ -19,6 +20,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
+from src.config import LLM_TIMEOUT
 from src.prompts import get_prompt, generation_context
 
 load_dotenv()
@@ -55,14 +57,14 @@ def _get_agent() -> Agent:
     return _agent
 
 
-def classify(query: str) -> ClassificationResult:
+async def classify(query: str) -> ClassificationResult:
     agent = _get_agent()
     with generation_context("wix-classifier", _prompt_client):
-        result = agent.run_sync(query)
+        result = await agent.run(query, model_settings={"timeout": LLM_TIMEOUT})
     classification = result.output
-    print(
-        f"[classifier] category={classification.category.name} "
-        f"reasoning={classification.reasoning!r}"
+    logging.getLogger(__name__).info(
+        "category=%s reasoning=%r",
+        classification.category.name,
+        classification.reasoning,
     )
     return classification
-

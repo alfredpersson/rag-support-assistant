@@ -37,10 +37,10 @@ _OUT_OF_SCOPE_RESPONSE = (
 
 
 @observe(name="wix-pipeline")
-def run(question: str) -> dict:
+async def run(question: str) -> dict:
     check_and_increment()
 
-    classification = classify(question)
+    classification = await classify(question)
     category = classification.category
 
     # ── Category 2: Nonsense ───────────────────────────────────
@@ -71,7 +71,7 @@ def run(question: str) -> dict:
         }
 
     # ── Categories 1 & 5: retrieve first ──────────────────────
-    rewritten = maybe_rewrite(question)
+    rewritten = await maybe_rewrite(question)
     candidates = retrieve(rewritten, top_k=20)
     chunks = rerank(rewritten, candidates, top_k=5)
     has_results = (
@@ -80,7 +80,7 @@ def run(question: str) -> dict:
 
     # ── Category 5: High-stakes ────────────────────────────────
     if category == QueryCategory.HIGH_STAKES:
-        answer, sources = generate_high_stakes(question, chunks if has_results else [])
+        answer, sources = await generate_high_stakes(question, chunks if has_results else [])
         return {
             "answer": answer,
             "sources": sources,
@@ -90,7 +90,7 @@ def run(question: str) -> dict:
 
     # ── Category 1: Answerable ─────────────────────────────────
     if not has_results:
-        followup = generate_followup(question)
+        followup = await generate_followup(question)
         return {
             "answer": followup,
             "sources": [],
@@ -98,7 +98,7 @@ def run(question: str) -> dict:
             "routing": "followup",
         }
 
-    answer, sources, routing_key = generate(question, chunks)
+    answer, sources, routing_key = await generate(question, chunks)
     return {
         "answer": answer,
         "sources": sources,

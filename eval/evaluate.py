@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import asyncio
 import json
 import os
 import random
@@ -140,7 +141,7 @@ def _eval_retrieval(
 # ── Phase 2 — Generation evaluation (LLM-as-judge) ────────────────────────
 
 
-def _eval_generation(
+async def _eval_generation(
     expert_rows, n: int = 50, seed: int = 42
 ) -> tuple[float, float, list]:
     """Returns (mean_faithfulness, mean_relevancy, per_row_list)."""
@@ -149,7 +150,7 @@ def _eval_generation(
     for i, row in enumerate(sample, 1):
         question = row["question"]
         try:
-            result = run(question)
+            result = await run(question)
             answer = result["answer"]
             chunks = result.get("chunks_used", [])
             context_blocks = "\n\n".join(
@@ -199,7 +200,7 @@ def _worst5_generation(per_row: list, metric_key: str) -> list[dict]:
 # ── Main ──────────────────────────────────────────────────────────────────
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--rerank",
@@ -236,7 +237,7 @@ def main():
 
     # --- Phase 2 ---
     print("\n[Phase 2] Generation — 50 expert questions (LLM-as-judge)...")
-    mean_faithfulness, mean_relevancy, gen_per_row = _eval_generation(
+    mean_faithfulness, mean_relevancy, gen_per_row = await _eval_generation(
         expert_rows, n=50, seed=42
     )
 
@@ -311,4 +312,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

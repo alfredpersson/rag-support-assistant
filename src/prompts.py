@@ -12,6 +12,7 @@ Usage in each LLM module:
         result = agent.run_sync(user_message)
 """
 
+import logging
 from typing import Tuple
 
 from dotenv import load_dotenv
@@ -43,8 +44,8 @@ def get_prompt(name: str, fallback: str) -> Tuple:
         client = _get_lf().get_prompt(name, label="production", fallback=fallback)
         return client, client.compile()
     except Exception as exc:
-        print(
-            f"[prompts] could not fetch {name!r} from Langfuse ({exc}); using fallback"
+        logging.getLogger(__name__).warning(
+            "Could not fetch %r from Langfuse (%s); using fallback", name, exc
         )
         return None, fallback
 

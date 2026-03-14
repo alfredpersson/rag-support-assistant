@@ -9,6 +9,7 @@ Chunking pipeline per article:
   5. Apply 50-token sliding overlap: prepend last 50 tokens of previous chunk
 """
 
+import logging
 import re
 
 import tiktoken
@@ -123,10 +124,13 @@ def chunk_article(body: str, enc) -> list[str]:
 
 
 def main():
-    print("Loading dataset...")
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    logger = logging.getLogger(__name__)
+
+    logger.info("Loading dataset...")
     dataset = load_dataset("Wix/WixQA", "wix_kb_corpus", split="train")
 
-    print("Setting up ChromaDB...")
+    logger.info("Setting up ChromaDB...")
     client = chromadb.PersistentClient(path=CHROMA_PATH)
 
     # Idempotency check
@@ -135,15 +139,17 @@ def main():
         if col.name == COLLECTION_NAME:
             count = col.count()
             if count > 0:
-                print(
-                    f"Collection '{COLLECTION_NAME}' already has {count} documents. Skipping ingest."
+                logger.info(
+                    "Collection '%s' already has %d documents. Skipping ingest.",
+                    COLLECTION_NAME,
+                    count,
                 )
                 return
             break
 
     collection = client.get_or_create_collection(COLLECTION_NAME)
 
-    print(f"Loading embedding model '{EMBED_MODEL}'...")
+    logger.info("Loading embedding model '%s'...", EMBED_MODEL)
     model = SentenceTransformer(EMBED_MODEL)
     enc = tiktoken.get_encoding(ENCODING)
 
@@ -152,7 +158,7 @@ def main():
     metadatas = []
 
     articles = dataset.to_list() if hasattr(dataset, "to_list") else list(dataset)
-    print(f"Processing {len(articles)} articles...")
+    logger.info("Processing %d articles...", len(articles))
 
     for article in articles:
         article_id = str(article.get("id", ""))
@@ -176,7 +182,7 @@ def main():
                 }
             )
 
-    print(f"Embedding {len(documents)} chunks...")
+    logger.info("Embedding %d chunks...", len(documents))
     batch_size = 256
     for start in range(0, len(documents), batch_size):
         batch_docs = documents[start : start + batch_size]
@@ -189,9 +195,9 @@ def main():
             documents=batch_docs,
             metadatas=batch_meta,
         )
-        print(f"  Stored {min(start + batch_size, len(documents))}/{len(documents)}")
+        logger.info("Stored %d/%d", min(start + batch_size, len(documents)), len(documents))
 
-    print(f"Done. Collection '{COLLECTION_NAME}' has {collection.count()} documents.")
+    logger.info("Done. Collection '%s' has %d documents.", COLLECTION_NAME, collection.count())
 
 
 if __name__ == "__main__":

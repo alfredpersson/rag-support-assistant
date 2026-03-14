@@ -3,6 +3,7 @@ Generate answers from retrieved chunks and handle specialist response paths.
 All LLM calls use pydantic-ai with structured output models.
 """
 
+import logging
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple
 
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
+from src.config import LLM_TIMEOUT
 from src.prompts import get_prompt, generation_context
 
 load_dotenv()
@@ -135,7 +137,7 @@ def _dedupe_chunks_by_source(chunks: List[dict]) -> List[dict]:
 # ── Public API ─────────────────────────────────────────────────
 
 
-def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
+async def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
     """
     Generate an answer, run self-critique, and decide which sources to cite.
     Returns (answer, sources, routing_key).
@@ -149,9 +151,10 @@ def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
 
     # ── 1. Generate answer ─────────────────────────────────────
     with generation_context("wix-generator", _generator_prompt):
-        gen_result = _get_generator_agent().run_sync(
+        gen_result = await _get_generator_agent().run(
             query,
             instructions=f"Context:\n{context_blocks}",
+            model_settings={"timeout": LLM_TIMEOUT},
         )
     answer = gen_result.output.answer
 
@@ -165,7 +168,7 @@ def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
             "\n\nCould you give me a bit more detail about what you're looking for? "
             "That will help me find the most accurate information."
         )
-        print(f"[generate] low confidence (top_score={top_score:.2f}); no sources")
+        logging.getLogger(__name__).info("Low confidence (top_score=%.2f); no sources", top_score)
         return answer + clarification, [], "low_confidence"
 
     # ── 4. Self-critique ───────────────────────────────────────
@@ -173,10 +176,12 @@ def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
         f"User question: {query}\n\nContext:\n{context_blocks}\n\nAnswer:\n{answer}"
     )
     with generation_context("wix-self-critique", _self_critique_prompt):
-        critique_result = _get_self_critique_agent().run_sync(critique_message)
+        critique_result = await _get_self_critique_agent().run(
+            critique_message, model_settings={"timeout": LLM_TIMEOUT}
+        )
     assessment = critique_result.output.assessment
-    print(
-        f"[self_critique] assessment={assessment} reasoning={critique_result.output.reasoning!r}"
+    logging.getLogger(__name__).info(
+        "assessment=%s reasoning=%r", assessment, critique_result.output.reasoning
     )
 
     # ── 5. Source link logic ───────────────────────────────────
@@ -196,33 +201,36 @@ def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]:
     if assessment == "PARTIALLY_ANSWERED":
         # 1 link – top confident source, as a starting point to fill the gap
         sources = [confident_sources[0]["article_title"]] if confident_sources else []
-        return answer, sources, "answered"
+        return answer, sources, "partially_answered"
 
     # FULLY_ANSWERED — up to 2 source links ("read more" for the user)
     sources = [c["article_title"] for c in confident_sources[:2]]
     return answer, sources, "answered"
 
 
-def generate_followup(query: str) -> str:
+async def generate_followup(query: str) -> str:
     """Return a clarifying follow-up question when retrieval found nothing useful."""
     with generation_context("wix-followup", _followup_prompt):
-        result = _get_followup_agent().run_sync(f"User question: {query}")
+        result = await _get_followup_agent().run(
+            f"User question: {query}", model_settings={"timeout": LLM_TIMEOUT}
+        )
     followup = result.output.follow_up_question
-    print(f"[followup] {followup!r}")
+    logging.getLogger(__name__).info("followup=%r", followup)
     return followup
 
 
-def generate_high_stakes(query: str, chunks: List[dict]) -> Tuple[str, List[str]]:
+async def generate_high_stakes(query: str, chunks: List[dict]) -> Tuple[str, List[str]]:
     """Empathetic response for cancellations, disputes, and complaints."""
     context_blocks = _build_context(chunks) if chunks else ""
     with generation_context("wix-high-stakes", _high_stakes_prompt):
-        result = _get_high_stakes_agent().run_sync(
+        result = await _get_high_stakes_agent().run(
             query,
             instructions=(
                 f"Relevant context chunks:\n{context_blocks}"
                 if context_blocks
                 else "No relevant context found."
             ),
+            model_settings={"timeout": LLM_TIMEOUT},
         )
     out = result.output
 
@@ -234,8 +242,8 @@ def generate_high_stakes(query: str, chunks: List[dict]) -> Tuple[str, List[str]
     parts.append(out.closing)
 
     answer = "\n\n".join(parts)
-    print(
-        f"[high_stakes] retention_offer={bool(out.retention_offer)} context_summary={bool(out.context_summary)}"
+    logging.getLogger(__name__).info(
+        "retention_offer=%s context_summary=%s", bool(out.retention_offer), bool(out.context_summary)
     )
 
     return answer, []  # high-stakes never cites sources

@@ -195,12 +195,12 @@ function appendAssistantMessage(text, sources = [], routing = '') {
 
   wrap.appendChild(bubble);
 
-  if (routing === 'answered' && sources.length) {
+  if ((routing === 'answered' || routing === 'partially_answered') && sources.length) {
     const sourceRow = document.createElement('div');
     sourceRow.className = 'sources';
     const label = document.createElement('span');
     label.className = 'sources-label';
-    label.textContent = 'Read more:';
+    label.textContent = routing === 'partially_answered' ? 'Related article:' : 'Read more:';
     sourceRow.appendChild(label);
     sources.forEach((src) => {
       const pill = document.createElement('span');
@@ -397,6 +397,20 @@ async function submitQuestion(question) {
 
     if (['out_of_scope', 'high_stakes', 'cannot_answer'].includes(data.routing)) {
       appendConnectAgentButton();
+    } else if (data.routing === 'partially_answered') {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg msg--assistant';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble bubble--md';
+      bubble.innerHTML = 'Need more detail? <a href="#agent" class="soft-escalation">Talk to a support agent</a>';
+      bubble.querySelector('.soft-escalation').addEventListener('click', (e) => {
+        e.preventDefault();
+        wrap.remove();
+        startHumanHandoff();
+      });
+      wrap.appendChild(bubble);
+      thread.appendChild(wrap);
+      scrollToBottom();
     }
   } catch {
     hideTyping();

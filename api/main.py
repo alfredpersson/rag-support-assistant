@@ -84,9 +84,9 @@ def health():
 
 
 @app.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest):
+async def ask(request: AskRequest):
     try:
-        result = run(request.question)
+        result = await run(request.question)
         return AskResponse(
             answer=result["answer"],
             sources=result["sources"],
