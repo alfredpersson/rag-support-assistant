@@ -16,6 +16,9 @@ def _get_reranker() -> CrossEncoder:
 
 def rerank(query: str, chunks: List[dict], top_k: int = 5) -> List[dict]:
     """Rerank chunks using a cross-encoder. Returns top_k chunks sorted by score descending."""
+    if not chunks:
+        return []
+
     reranker = _get_reranker()
 
     pairs = [[query, c["text"]] for c in chunks]

@@ -122,3 +122,13 @@ def test_partially_answered_gets_one_source():
     sources = [confident[0]["article_title"]] if confident else []
     assert len(sources) == 1
     assert sources[0] == "Top Article"
+
+
+# ── rerank empty-chunks edge case ─────────────────────────────
+
+
+def test_rerank_empty_chunks():
+    """rerank() should return [] immediately when given no chunks."""
+    from src.reranker import rerank
+
+    assert rerank("any query", []) == []

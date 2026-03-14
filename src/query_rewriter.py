@@ -3,6 +3,7 @@ Rewrite short queries (<8 words) into fuller, retrieval-optimised questions.
 Uses pydantic-ai with a structured output model.
 """
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
+from src.config import LLM_TIMEOUT
 from src.prompts import get_prompt, generation_context
 
 load_dotenv()
@@ -37,15 +39,16 @@ def _get_agent() -> Agent:
     return _agent
 
 
-def maybe_rewrite(query: str) -> str:
+async def maybe_rewrite(query: str) -> str:
     """Rewrite query if it is fewer than 8 words, otherwise return as-is."""
     if len(query.split()) >= 8:
         return query
 
-    print(f"[query_rewriter] Rewriting short query: {query!r}")
+    logger = logging.getLogger(__name__)
+    logger.info("Rewriting short query: %r", query)
     agent = _get_agent()
     with generation_context("wix-query-rewriter", _prompt_client):
-        result = agent.run_sync(query)
+        result = await agent.run(query, model_settings={"timeout": LLM_TIMEOUT})
     rewritten = result.output.rewritten_query
-    print(f"[query_rewriter] Rewritten to: {rewritten!r}")
+    logger.info("Rewritten to: %r", rewritten)
     return rewritten
