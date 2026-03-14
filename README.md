@@ -29,9 +29,9 @@ After generation, a **self-critique** step assesses whether the answer fully, pa
 | Situation | Response | Reasoning |
 |---|---|---|
 | Retrieval finds nothing relevant | Clarifying follow-up question | Avoids hallucinating from weak context; keeps the conversation going |
-| Low retrieval confidence | Best-effort answer + "could you be more specific?" | Transparent about uncertainty rather than presenting a weak answer with full confidence |
+| Low retrieval confidence (score 2.0–5.0) | Answer is still generated, but shown without source links + "could you be more specific?" appended | The context is good enough to attempt an answer but not good enough to cite confidently — the user gets a best-effort response with a clear signal that it may be incomplete |
 | Self-critique: CANNOT_ANSWER | "I couldn't find an answer" + connect-to-agent button | Immediate escalation path instead of a vague hedge |
-| Self-critique: PARTIALLY_ANSWERED | Answer + 1 source link | User gets a starting point to fill the gap |
+| Self-critique: PARTIALLY_ANSWERED | Answer + 1 source link (labeled "Related article") + soft inline escalation link ("Need more detail? Talk to a support agent") | Partial answers are still useful — a prominent connect-agent button would push escalation too hard, but a soft text link gives the user an easy path if the answer isn't enough |
 | Self-critique: FULLY_ANSWERED | Answer + up to 2 source links | Confident answer with "read more" links to the full articles |
 | High-stakes query | Empathetic acknowledgment + retention offer + escalation | Sensitive queries need tone and structure control, not a help article |
 | Out-of-scope query | Escalation offer | Doesn't pretend to help with things it can't handle |
@@ -42,18 +42,20 @@ These are implemented in [`src/pipeline.py`](src/pipeline.py) and [`src/generato
 
 ## Evaluation
 
+The bot finds the right help article about 7 times out of 10, and when it does generate an answer, that answer is almost always grounded in the retrieved content rather than hallucinated.
+
 The pipeline is evaluated against the [WixQA benchmark](https://huggingface.co/datasets/Wix/WixQA) with retrieval and generation scored separately, so failures can be diagnosed to the right stage. I ran 7 experiments across retrieval strategy, query expansion, classifier tuning, and chunk enrichment. The best configuration is **title-prepended embeddings + cross-encoder reranking**.
 
 | Metric | Score | What it measures |
 |---|---|---|
-| Expert Hit Rate @ 5 | **0.71** | Correct article in top-5 for human-written questions |
-| Expert MRR | **0.51** | How high the correct article ranks |
-| Faithfulness | **4.80 / 5** | LLM-as-judge: answer grounded in retrieved context |
-| Relevancy | **4.76 / 5** | LLM-as-judge: answer addresses what was asked |
+| Expert Hit Rate @ 5 | **0.71** *(n=200)* | Correct article in top-5 for human-written questions |
+| Expert MRR | **0.51** *(n=200)* | How high the correct article ranks |
+| Faithfulness | **4.80 / 5** *(n=50)* | LLM-as-judge: answer grounded in retrieved context |
+| Relevancy | **4.76 / 5** *(n=50)* | LLM-as-judge: answer addresses what was asked |
+
+Sample sizes are sufficient to compare configurations and identify failure patterns, but too small for tight confidence intervals — individual values could shift ±0.05 with a different sample.
 
 The expert hit rate ceiling at 0.71 is a genuine finding: the remaining 29% are KB coverage gaps and vocabulary mismatches that persisted across all seven experiments, including approaches I tried and reverted (HyDE, always-on query expansion, larger candidate pools). The most impactful next steps would be hybrid retrieval (dense + BM25) and a larger embedding model.
-
-**Sample size caveat:** Generation scores are based on 50 questions and retrieval on 200. These are sufficient to compare configurations and identify failure patterns, but too small for tight confidence intervals — individual metric values could shift by ±0.05 with a different sample. See [evaluation methodology](eval/README.md) for more detail.
 
 Details: [experiment log](eval/EXPERIMENTS.md) and [evaluation methodology](eval/README.md).
 
@@ -144,7 +146,10 @@ flowchart TD
 | Frontend | Vanilla HTML/CSS/JS chat widget | Renders each response type differently: source links, escalation buttons, suggestion chips |
 | Observability | Langfuse (traces + prompt versioning) | Shows exactly what happened on every request; prompts can be updated without code changes |
 
-For detailed reasoning behind every technical decision, see [ARCHITECTURE.md](ARCHITECTURE.md).
+**Key design decisions** (detailed reasoning in [ARCHITECTURE.md](ARCHITECTURE.md)):
+- **No framework** — every pipeline stage is written explicitly so the design decisions are visible and debuggable, not hidden behind LangChain abstractions
+- **Two-stage retrieval** — fast vector search for recall, then a cross-encoder reranker for precision; this was the single largest quality improvement in evaluation
+- **Self-critique over generic caveats** — a structured LLM assessment (FULLY / PARTIALLY / CANNOT) drives specific UI behavior rather than appending "please verify" to every answer
 
 ## What changes for production
 
@@ -166,33 +171,8 @@ For detailed reasoning behind every technical decision, see [ARCHITECTURE.md](AR
 | Auth | None | API key or OAuth, per-user quotas |
 | Observability | Langfuse traces | Langfuse + structured logging + latency metrics per stage |
 
-## Project structure
-
-```
-src/
-  ingest.py          # Dataset loading, chunking, ChromaDB population
-  retriever.py       # Query embedding + vector search (top-20 candidates)
-  reranker.py        # Cross-encoder reranking → top-5 chunks
-  classifier.py      # 5-category query classifier (pydantic-ai)
-  query_rewriter.py  # Query expansion for short queries (<8 words)
-  generator.py       # Answer generation, self-critique, confidence signaling
-  pipeline.py        # Orchestrates the full request pipeline
-  rate_limit.py      # Daily 100-request cap (rate_limit.json)
-  prompts.py         # Langfuse prompt fetching + OTel prompt linkage
-prompts/
-  *.txt              # Prompt source files (version-controlled)
-  seed.py            # Registers prompts with Langfuse
-api/
-  main.py            # FastAPI app with CORS and static file mount
-frontend/
-  index.html         # Mock SaaS dashboard + chat widget
-  style.css          # All styles (CSS variables, no framework)
-  main.js            # Widget logic, markdown rendering, routing handlers
-eval/
-  evaluate.py        # Retrieval + generation evaluation against WixQA benchmark
-  EXPERIMENTS.md     # Full experiment log with results and root cause analysis
-  README.md          # Evaluation methodology and metric definitions
-```
+<details>
+<summary><strong>Setup, API, project structure, and environment variables</strong></summary>
 
 ## Setup
 
@@ -241,6 +221,7 @@ The `routing` field tells the frontend how to render the response:
 | Value | Meaning |
 |---|---|
 | `answered` | Full pipeline ran; answer grounded in retrieved content |
+| `partially_answered` | Self-critique found a partial answer; 1 source link + soft escalation link |
 | `followup` | Retrieval found nothing useful; bot asks a clarifying question |
 | `low_confidence` | Reranker scores too low; answer shown without sources |
 | `cannot_answer` | Self-critique determined context can't answer; escalation offered |
@@ -248,6 +229,39 @@ The `routing` field tells the frontend how to render the response:
 | `out_of_scope` | Beyond assistant scope; escalation offered |
 | `irrelevant` | Off-topic; topic suggestions shown |
 | `nonsense` | No discernible intent; topic suggestions shown |
+
+## Project structure
+
+```
+src/
+  ingest.py          # Dataset loading, chunking, ChromaDB population
+  retriever.py       # Query embedding + vector search (top-20 candidates)
+  reranker.py        # Cross-encoder reranking → top-5 chunks
+  classifier.py      # 5-category query classifier (pydantic-ai)
+  query_rewriter.py  # Query expansion for short queries (<8 words)
+  generator.py       # Answer generation, self-critique, confidence signaling
+  pipeline.py        # Orchestrates the full request pipeline
+  rate_limit.py      # Daily 100-request cap (rate_limit.json)
+  prompts.py         # Langfuse prompt fetching + OTel prompt linkage
+prompts/
+  *.txt              # Prompt source files (version-controlled)
+  seed.py            # Registers prompts with Langfuse
+api/
+  main.py            # FastAPI app with CORS and static file mount
+frontend/
+  index.html         # Mock SaaS dashboard + chat widget
+  style.css          # All styles (CSS variables, no framework)
+  main.js            # Widget logic, markdown rendering, routing handlers
+eval/
+  evaluate.py        # Retrieval + generation evaluation against WixQA benchmark
+  EXPERIMENTS.md     # Full experiment log with results and root cause analysis
+  README.md          # Evaluation methodology and metric definitions
+tests/
+  test_chunking.py   # Chunking pipeline unit tests
+  test_generator.py  # Generator helpers and source link logic tests
+  test_pipeline.py   # Routing decision tests (mocked LLM calls)
+  test_metrics.py    # Evaluation metric function tests
+```
 
 ## Environment variables
 
@@ -259,6 +273,8 @@ The `routing` field tells the frontend how to render the response:
 | `LANGFUSE_HOST` | No | Langfuse host (defaults to cloud) |
 
 Tracing and prompt versioning degrade gracefully if Langfuse keys are not set — the pipeline falls back to local prompt files.
+
+</details>
 
 ## Further reading
 
