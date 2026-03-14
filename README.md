@@ -10,10 +10,17 @@ In a support context, these failure cases are where the business impact lives. A
 
 - **No multi-turn conversation.** The pipeline is completely stateless — each request is independent with no memory of previous messages. For a production support bot, conversation context is table stakes (follow-up questions, pronoun resolution, etc.). This is a deliberate scope boundary for the demo; the architecture would need a session store and context window to support it.
 - **Connect-to-agent is a demo stub.** The agent handoff flow shows mock team availability but does not actually connect to a live agent. In production this would integrate with a live chat system.
+- **No adversarial input protection.** The pipeline does no prompt injection filtering or input sanitization beyond what the LLM provider applies. A malicious user could craft inputs to manipulate classifier routing or generation output. Production deployment would need an input guardrail layer before the classifier.
 
 ## How it works
 
-Every incoming question is classified into one of five categories — **answerable**, **nonsense**, **irrelevant**, **out-of-scope**, or **high-stakes** — and routed to a purpose-built handler. Answerable and high-stakes queries go through retrieval; the rest get static responses immediately without wasting compute.
+Here's what a user sees when they ask a question:
+
+1. **Got an answer** — the bot replies with a grounded answer and links to the source help articles. If the answer only partially covers the question, the bot says so and offers a soft link to talk to a human instead of pretending it nailed it.
+2. **Got asked a follow-up** — the bot couldn't find anything relevant in the knowledge base, so instead of guessing, it asks a clarifying question to keep the conversation going.
+3. **Got connected to an agent** — the user asked something sensitive (cancellation, billing dispute) or the bot determined it genuinely can't help. The user sees an empathetic message and a button to reach a support agent, not a generic "I don't know."
+
+Under the hood, every question is classified into one of five categories — **answerable**, **nonsense**, **irrelevant**, **out-of-scope**, or **high-stakes** — and routed to a purpose-built handler. Only answerable and high-stakes queries go through retrieval; the rest get static responses immediately without wasting compute.
 
 For queries that go through retrieval, the pipeline applies two confidence gates before presenting an answer:
 
@@ -23,6 +30,24 @@ For queries that go through retrieval, the pipeline applies two confidence gates
 After generation, a **self-critique** step assesses whether the answer fully, partially, or cannot address the question. This determines whether to offer human escalation and how much confidence to convey to the user.
 
 **High-stakes queries** (cancellations, billing disputes, complaints) bypass normal generation entirely. They get an empathetic acknowledgment with a structured retention offer and escalation path — because a standard RAG answer to "I want to cancel my account" is the wrong response.
+
+## Latency
+
+The full pipeline for an answerable query takes **~6–12 seconds** end-to-end, averaging around 9 seconds. Almost all of that is LLM calls — local compute (embedding, reranking) is under 250ms after model warmup.
+
+| Stage | Time | Notes |
+|---|---|---|
+| Classify | ~1.3s | Every query pays this |
+| Query rewrite | ~2s | Only short queries (<8 words) |
+| Retrieve + rerank | ~0.3s | Local models, fast after warmup |
+| Generate | ~5s | Longest single call |
+| Self-critique | ~1.5s | Only runs when confidence is high enough to cite sources |
+
+The cost is in the sequential LLM chain. An answerable query makes 3–4 LLM calls in sequence: classify → (rewrite) → generate → self-critique. Each call depends on the output of the previous one — classification determines whether to retrieve at all, generation produces the text that self-critique evaluates — so they cannot be parallelized. This is different from a pipeline where multiple independent checks run on the same input, which could run concurrently. Here, each step genuinely needs the previous step's output before it can start.
+
+That's a real tradeoff. Whether 9 seconds is acceptable depends entirely on the product context. A search autocomplete can't afford a single extra LLM call. But in a support context, a wrong answer or a tone-deaf response to a frustrated user costs more than a few extra seconds of wait time — users who are stuck on a billing issue or trying to set up a domain are willing to wait longer for a good answer than they would for a quick-and-wrong one.
+
+The pipeline prioritizes response quality over speed: the classifier prevents wasted retrieval on nonsense, the self-critique catches answers that look plausible but don't actually address the question, and the confidence gate prevents the bot from confidently citing articles it shouldn't. Each of those calls earns its latency. But the cumulative cost is real, and production would need to address it — streaming the answer to the user while self-critique runs in the background, swapping the classifier for a fine-tuned model that runs locally in <50ms, or running independent checks concurrently where the dependency graph allows it.
 
 ## Failure states
 
@@ -46,12 +71,12 @@ The bot finds the right help article about 7 times out of 10, and when it does g
 
 The pipeline is evaluated against the [WixQA benchmark](https://huggingface.co/datasets/Wix/WixQA) with retrieval and generation scored separately, so failures can be diagnosed to the right stage. I ran 7 experiments across retrieval strategy, query expansion, classifier tuning, and chunk enrichment. The best configuration is **title-prepended embeddings + cross-encoder reranking**.
 
-| Metric | Score | What it measures |
+| Metric | Score | What it means |
 |---|---|---|
-| Expert Hit Rate @ 5 | **0.71** *(n=200)* | Correct article in top-5 for human-written questions |
-| Expert MRR | **0.51** *(n=200)* | How high the correct article ranks |
-| Faithfulness | **4.80 / 5** *(n=50)* | LLM-as-judge: answer grounded in retrieved context |
-| Relevancy | **4.76 / 5** *(n=50)* | LLM-as-judge: answer addresses what was asked |
+| Expert Hit Rate @ 5 | **0.71** *(n=200)* | "Did the right article show up?" — 71% of the time, the correct help article appeared in the top 5 results when tested against human-written questions with known answers |
+| Expert MRR | **0.51** *(n=200)* | "How high did it rank?" — on average, the correct article appeared around position 2. Higher is better (1.0 = always first) |
+| Faithfulness | **4.80 / 5** *(n=50)* | "Did the bot make things up?" — an LLM judge scored how well answers stuck to the retrieved content. 4.8/5 means answers are almost entirely grounded, not hallucinated |
+| Relevancy | **4.76 / 5** *(n=50)* | "Did the bot actually answer the question?" — an LLM judge scored whether the response addressed what was asked. 4.76/5 means answers are consistently on-topic |
 
 Sample sizes are sufficient to compare configurations and identify failure patterns, but too small for tight confidence intervals — individual values could shift ±0.05 with a different sample.
 
