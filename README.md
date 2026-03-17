@@ -54,7 +54,7 @@ The pipeline prioritizes response quality over speed: the classifier prevents wa
 | Situation | Response | Reasoning |
 |---|---|---|
 | Retrieval finds nothing relevant | Clarifying follow-up question | Avoids hallucinating from weak context; keeps the conversation going |
-| Low retrieval confidence (score 2.0–5.0) | Answer is still generated, but shown without source links + "could you be more specific?" appended | The context is good enough to attempt an answer but not good enough to cite confidently — the user gets a best-effort response with a clear signal that it may be incomplete |
+| Low retrieval confidence (score 2.0–5.0) | A disclaimer appears above the answer ("I'm not fully sure this matches what you're asking…") and no source links are shown | The context is good enough to attempt an answer but not good enough to cite confidently — the disclaimer is rendered as a visually distinct element above the answer bubble so the user reads everything that follows with the right expectations |
 | Self-critique: CANNOT_ANSWER | "I couldn't find an answer" + connect-to-agent button | Immediate escalation path instead of a vague hedge |
 | Self-critique: PARTIALLY_ANSWERED | Answer + 1 source link (labeled "Related article") + soft inline escalation link ("Need more detail? Talk to a support agent") | Partial answers are still useful — a prominent connect-agent button would push escalation too hard, but a soft text link gives the user an easy path if the answer isn't enough |
 | Self-critique: FULLY_ANSWERED | Answer + up to 2 source links | Confident answer with "read more" links to the full articles |
@@ -228,7 +228,7 @@ The `routing` field tells the frontend how to render the response:
 | `answered` | Full pipeline ran; answer grounded in retrieved content |
 | `partially_answered` | Self-critique found a partial answer; 1 source link + soft escalation link |
 | `followup` | Retrieval found nothing useful; bot asks a clarifying question |
-| `low_confidence` | Reranker scores too low; answer shown without sources |
+| `low_confidence` | Reranker scores too low; disclaimer shown above answer, no sources |
 | `cannot_answer` | Self-critique determined context can't answer; escalation offered |
 | `high_stakes` | Cancellation/dispute/complaint; empathetic response + escalation |
 | `out_of_scope` | Beyond assistant scope; escalation offered |

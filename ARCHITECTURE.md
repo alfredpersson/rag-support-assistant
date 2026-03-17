@@ -106,9 +106,9 @@ This document explains the reasoning behind every significant technical choice, 
 
 ## 10. Source link logic
 
-**Decision:** Use the confidence threshold (`reranker_score ≥ 5.0`) and self-critique outcome to decide how many source links to show. FULLY_ANSWERED gets up to 2 links as a "read more" reference. PARTIALLY_ANSWERED gets 1 link as a starting point. CANNOT_ANSWER and low-confidence answers get none.
+**Decision:** Use the confidence threshold (`reranker_score ≥ 5.0`) and self-critique outcome to decide how many source links to show. FULLY_ANSWERED gets up to 2 links as a "read more" reference. PARTIALLY_ANSWERED gets 1 link as a starting point. CANNOT_ANSWER and low-confidence answers get none. Low-confidence answers are preceded by a visually distinct disclaimer ("I'm not fully sure this matches what you're asking…") rendered above the answer bubble, so the user reads the answer with the right expectations rather than encountering a caveat buried at the end.
 
-**Reasoning:** Source links serve a "read more" function on confident answers. A user who gets "To connect a custom domain, go to Settings > Domains..." should be able to click through to the full article for screenshots, edge cases, or related steps. Links are withheld from uncertain answers because low-confidence retrievals are most likely to surface tangentially related articles rather than directly helpful ones.
+**Reasoning:** When retrieval confidence is low, the main risk is that the user reads a generated answer as authoritative when it may not match their question. The disclaimer above the answer sets expectations before the user starts reading — if it were appended at the end, the user would already be following steps before discovering the bot wasn't confident. Source links are withheld for the same reason: low-confidence retrievals are most likely to surface tangentially related articles, and citing them would reinforce false confidence. On high-confidence answers, source links serve a "read more" function — the user can click through to the full article for screenshots, edge cases, or related steps.
 
 **Production consideration:** The `5.0` threshold is a heuristic tuned through evaluation. In production it would be calibrated against user feedback (click-through rate on source links, user satisfaction scores) and offline evaluation.
 
