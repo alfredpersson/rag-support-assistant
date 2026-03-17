@@ -139,7 +139,8 @@ flowchart LR
   RL -- "limit exceeded" --> ERR429["HTTP 429"]
   RL -- "ok" --> CLF{"Classifier<br/>gpt-4o-mini<br/>5 categories"}
 
-  CLF -- "nonsense / irrelevant<br/>out of scope" --> RESP["answer + sources<br/>+ routing"]
+  CLF -- "nonsense /<br/>irrelevant" --> STATIC["Static response<br/>+ topic suggestions"]
+  CLF -- "out of scope" --> OOS["Escalation offer"]
   CLF -- "answerable /<br/>high-stakes" --> QR["Query rewriter<br/>gpt-4o-mini<br/>(short queries only)"]
 
   QR --> EMBED_R["Embed query<br/>all-MiniLM-L6-v2"] --> VSEARCH["Vector search<br/>ChromaDB · top-20"]
@@ -148,13 +149,24 @@ flowchart LR
 
   RERANK --> REL{"Relevance gate<br/>score ≥ 2.0?"}
 
-  REL -- "no relevant results" --> FOLLOWUP["Follow-up question<br/>ask for clarification"] --> RESP
-  REL -- "high-stakes" --> HS["High-stakes response<br/>empathy + escalation"] --> RESP
-  REL -- "yes" --> GEN["Generator<br/>gpt-4o-mini"] --> CONF{"Confidence gate<br/>score ≥ 5.0?"}
+  REL -- "yes" --> HS_CHECK{"High-stakes?"}
+  REL -- "no" --> HS_CHECK_NO{"High-stakes?"}
 
-  CONF -- "low confidence" --> RESP
-  CONF -- "confident" --> CRITIQUE["Self-critique<br/>FULLY / PARTIALLY / CANNOT"] --> RESP
+  HS_CHECK -- "yes" --> HS["High-stakes response<br/>empathy + context<br/>+ escalation"] --> RESP["Response<br/>to user"]
+  HS_CHECK -- "no" --> GEN["Generator<br/>gpt-4o-mini"] --> CONF{"Confidence gate<br/>score ≥ 5.0?"}
 
+  HS_CHECK_NO -- "yes" --> HS_NO["High-stakes response<br/>empathy + escalation<br/>(no context)"] --> RESP
+  HS_CHECK_NO -- "no" --> FOLLOWUP["Follow-up question<br/>ask for clarification"] --> RESP
+
+  CONF -- "low confidence" --> LC["Answer + disclaimer<br/>no sources"] --> RESP
+  CONF -- "confident" --> CRITIQUE{"Self-critique<br/>gpt-4o-mini"}
+
+  CRITIQUE -- "CANNOT_ANSWER" --> CA["Escalation message<br/>+ connect-agent"] --> RESP
+  CRITIQUE -- "PARTIALLY_ANSWERED" --> PA["Answer + 1 source<br/>+ soft escalation link"] --> RESP
+  CRITIQUE -- "FULLY_ANSWERED" --> FA["Answer + up to 2 sources"] --> RESP
+
+  STATIC --> RESP
+  OOS --> RESP
   RESP --> USER
 
   classDef store     fill:#e8f4fd,stroke:#3b82f6,color:#1e3a5f
@@ -164,8 +176,8 @@ flowchart LR
   classDef io        fill:#dcfce7,stroke:#16a34a,color:#14532d
 
   class CHROMA store
-  class CLF,QR,GEN,CRITIQUE,FOLLOWUP,HS llm
-  class RL,REL,CONF gate
+  class CLF,QR,GEN,FOLLOWUP,HS,HS_NO llm
+  class RL,HS_CHECK,HS_CHECK_NO,REL,CONF,CRITIQUE gate
   class API endpoint
   class USER,RESP io
 ```
