@@ -327,6 +327,7 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   margin-right: 2px;
 }
 .source-pill {
+  cursor: pointer;
   font-size: 11px;
   padding: 2px 8px;
   background: var(--brand-light);
@@ -394,11 +395,9 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
 .bubble--md ol {
   margin: 4px 0 6px;
   padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
 }
-.bubble--md li { line-height: 1.5; }
+.bubble--md li { line-height: 1.5; margin-bottom: 5px; }
+.bubble--md li:last-child { margin-bottom: 0; }
 .bubble--md strong { font-weight: 700; }
 
 /* Step overflow / truncation — lives inside the bubble */
