@@ -69,8 +69,8 @@ async def test_out_of_scope_routing(mock_classify):
 
 @pytest.mark.asyncio
 @patch("src.pipeline.generate_followup", new_callable=AsyncMock, return_value="Could you clarify?")
-@patch("src.pipeline.rerank")
-@patch("src.pipeline.retrieve")
+@patch("src.pipeline._rerank")
+@patch("src.pipeline._retrieve")
 @patch("src.pipeline.maybe_rewrite", new_callable=AsyncMock, side_effect=lambda q: q)
 @patch("src.pipeline.classify", new_callable=AsyncMock)
 async def test_answerable_low_relevance_routes_to_followup(
@@ -89,8 +89,8 @@ async def test_answerable_low_relevance_routes_to_followup(
 
 @pytest.mark.asyncio
 @patch("src.pipeline.generate", new_callable=AsyncMock, return_value=("Here is the answer.", ["Article 0"], "answered"))
-@patch("src.pipeline.rerank")
-@patch("src.pipeline.retrieve")
+@patch("src.pipeline._rerank")
+@patch("src.pipeline._retrieve")
 @patch("src.pipeline.maybe_rewrite", new_callable=AsyncMock, side_effect=lambda q: q)
 @patch("src.pipeline.classify", new_callable=AsyncMock)
 async def test_answerable_high_relevance_generates(
@@ -107,8 +107,8 @@ async def test_answerable_high_relevance_generates(
 
 @pytest.mark.asyncio
 @patch("src.pipeline.generate", new_callable=AsyncMock, return_value=("Partial answer.", ["Article 0"], "partially_answered"))
-@patch("src.pipeline.rerank")
-@patch("src.pipeline.retrieve")
+@patch("src.pipeline._rerank")
+@patch("src.pipeline._retrieve")
 @patch("src.pipeline.maybe_rewrite", new_callable=AsyncMock, side_effect=lambda q: q)
 @patch("src.pipeline.classify", new_callable=AsyncMock)
 async def test_partially_answered_routing(
@@ -128,8 +128,8 @@ async def test_partially_answered_routing(
 
 @pytest.mark.asyncio
 @patch("src.pipeline.generate_high_stakes", new_callable=AsyncMock, return_value=("I understand...", []))
-@patch("src.pipeline.rerank")
-@patch("src.pipeline.retrieve")
+@patch("src.pipeline._rerank")
+@patch("src.pipeline._retrieve")
 @patch("src.pipeline.maybe_rewrite", new_callable=AsyncMock, side_effect=lambda q: q)
 @patch("src.pipeline.classify", new_callable=AsyncMock)
 async def test_high_stakes_routing(
@@ -145,8 +145,8 @@ async def test_high_stakes_routing(
 
 @pytest.mark.asyncio
 @patch("src.pipeline.generate_high_stakes", new_callable=AsyncMock, return_value=("I understand...", []))
-@patch("src.pipeline.rerank")
-@patch("src.pipeline.retrieve")
+@patch("src.pipeline._rerank")
+@patch("src.pipeline._retrieve")
 @patch("src.pipeline.maybe_rewrite", new_callable=AsyncMock, side_effect=lambda q: q)
 @patch("src.pipeline.classify", new_callable=AsyncMock)
 async def test_high_stakes_with_no_results_passes_empty_chunks(

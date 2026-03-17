@@ -3,9 +3,19 @@ from langfuse import observe
 from src.classifier import classify, QueryCategory
 from src.rate_limit import check_and_increment
 from src.query_rewriter import maybe_rewrite
-from src.retriever import retrieve
-from src.reranker import rerank
+from src.retriever import retrieve as _retrieve
+from src.reranker import rerank as _rerank
 from src.generator import generate, generate_followup, generate_high_stakes
+
+
+@observe(name="retrieve")
+def retrieve_traced(query: str, top_k: int = 5):
+    return _retrieve(query, top_k=top_k)
+
+
+@observe(name="rerank")
+def rerank_traced(query: str, candidates, top_k: int = 5):
+    return _rerank(query, candidates, top_k=top_k)
 
 RELEVANCE_SCORE_THRESHOLD = 2.0
 
@@ -72,8 +82,8 @@ async def run(question: str) -> dict:
 
     # ── Categories 1 & 5: retrieve first ──────────────────────
     rewritten = await maybe_rewrite(question)
-    candidates = retrieve(rewritten, top_k=20)
-    chunks = rerank(rewritten, candidates, top_k=5)
+    candidates = retrieve_traced(rewritten, top_k=20)
+    chunks = rerank_traced(rewritten, candidates, top_k=5)
     has_results = (
         bool(chunks) and chunks[0]["reranker_score"] >= RELEVANCE_SCORE_THRESHOLD
     )
