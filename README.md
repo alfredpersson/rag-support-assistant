@@ -6,6 +6,16 @@ The focus is on what happens when the pipeline *can't* confidently answer: when 
 
 In a support context, these failure cases are where the business impact lives. A bot that handles a cancellation request the same way it handles a how-to question will lose that customer. A bot that confidently presents a wrong answer erodes trust faster than having no bot at all. And a bot that says "I don't know" with no next step is a dead end that drives a support ticket anyway. The failure handling in this pipeline is designed to deflect tickets when the bot can help, preserve trust when it can't, and route to a human immediately when the situation calls for it.
 
+<p align="center">
+  <img src="images/dashboard_closed_widget.png" alt="Mock SaaS dashboard with closed chat widget" width="700"><br>
+  <em>The support widget lives in the corner of a mock SaaS dashboard</em>
+</p>
+
+<p align="center">
+  <img src="images/dashboard_open_widget.png" alt="Dashboard with chat widget open" width="700"><br>
+  <em>Opening the widget shows a welcome message and suggested questions</em>
+</p>
+
 ## Limitations
 
 - **No multi-turn conversation.** The pipeline is completely stateless — each request is independent with no memory of previous messages. For a production support bot, conversation context is table stakes (follow-up questions, pronoun resolution, etc.). This is a deliberate scope boundary for the demo; the architecture would need a session store and context window to support it.
@@ -17,8 +27,25 @@ In a support context, these failure cases are where the business impact lives. A
 Here's what a user sees when they ask a question:
 
 1. **Got an answer** — the bot replies with a grounded answer and links to the source help articles. If the answer only partially covers the question, the bot says so and offers a soft link to talk to a human instead of pretending it nailed it.
+
+<p align="center">
+  <img src="images/fully_answered.png" alt="Fully answered query with source links" width="350"><br>
+  <em>A grounded answer with step-by-step instructions and source article links</em>
+</p>
+
 2. **Got asked a follow-up** — the bot couldn't find anything relevant in the knowledge base, so instead of guessing, it asks a clarifying question to keep the conversation going.
+
+<p align="center">
+  <img src="images/followup_question.png" alt="Follow-up clarifying question" width="350"><br>
+  <em>When retrieval finds nothing relevant, the bot asks a clarifying question</em>
+</p>
+
 3. **Got connected to an agent** — the user asked something sensitive (cancellation, billing dispute) or the bot determined it genuinely can't help. The user sees an empathetic message and a button to reach a support agent, not a generic "I don't know."
+
+<p align="center">
+  <img src="images/high_stakes.png" alt="High-stakes query with empathetic response and escalation" width="350"><br>
+  <em>High-stakes queries get an empathetic response with a path to a human agent</em>
+</p>
 
 Under the hood, every question is classified into one of five categories — **answerable**, **nonsense**, **irrelevant**, **out-of-scope**, or **high-stakes** — and routed to a purpose-built handler. Only answerable and high-stakes queries go through retrieval; the rest get static responses immediately without wasting compute.
 
@@ -26,6 +53,11 @@ For queries that go through retrieval, the pipeline applies two confidence gates
 
 1. **Relevance gate** — if the cross-encoder reranker's top score is below 2.0, the retrieved results aren't good enough. Instead of generating from weak context, the bot asks a clarifying follow-up question.
 2. **Confidence gate** — if the top score is below 5.0, the answer is shown but the bot signals that it isn't fully sure and asks the user to be more specific.
+
+<p align="center">
+  <img src="images/low_confidence.png" alt="Low confidence response with disclaimer" width="350"><br>
+  <em>Low confidence answers show a disclaimer and omit source links</em>
+</p>
 
 After generation, a **self-critique** step assesses whether the answer fully, partially, or cannot address the question. This determines whether to offer human escalation and how much confidence to convey to the user.
 
