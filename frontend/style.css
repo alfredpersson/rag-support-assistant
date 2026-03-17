@@ -300,6 +300,18 @@ button { cursor: pointer; border: none; background: none; font: inherit; }
   color: #991B1B !important;
 }
 
+/* Low-confidence disclaimer */
+.confidence-disclaimer {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #F3F4F6;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  line-height: 1.45;
+}
+
 /* Sources */
 .sources {
   display: flex;

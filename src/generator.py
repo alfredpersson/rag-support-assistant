@@ -164,12 +164,8 @@ async def generate(query: str, chunks: List[dict]) -> Tuple[str, List[str], str]
     # ── 3. Confidence gate ─────────────────────────────────────
     top_score = deduped[0]["reranker_score"] if deduped else 0.0
     if top_score < CONFIDENCE_THRESHOLD:
-        clarification = (
-            "\n\nCould you give me a bit more detail about what you're looking for? "
-            "That will help me find the most accurate information."
-        )
         logging.getLogger(__name__).info("Low confidence (top_score=%.2f); no sources", top_score)
-        return answer + clarification, [], "low_confidence"
+        return answer, [], "low_confidence"
 
     # ── 4. Self-critique ───────────────────────────────────────
     critique_message = (

@@ -193,6 +193,13 @@ function appendAssistantMessage(text, sources = [], routing = '') {
     bubble.appendChild(showBtn);
   }
 
+  if (routing === 'low_confidence') {
+    const disclaimer = document.createElement('div');
+    disclaimer.className = 'confidence-disclaimer';
+    disclaimer.textContent = "I'm not fully sure this matches what you're asking, but here's what I found. If this isn't quite right, rephrasing or adding more detail may help me find more accurate info.";
+    wrap.appendChild(disclaimer);
+  }
+
   wrap.appendChild(bubble);
 
   if ((routing === 'answered' || routing === 'partially_answered') && sources.length) {
