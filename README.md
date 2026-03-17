@@ -87,61 +87,41 @@ Details: [experiment log](eval/EXPERIMENTS.md) and [evaluation methodology](eval
 ## Pipeline
 
 ```mermaid
-flowchart TD
+flowchart LR
 
   %% ── Ingest (one-time) ──────────────────────────────────────
   subgraph INGEST["ingest.py  (one-time)"]
-    direction TB
-    DS["Wix/WixQA dataset\n(HuggingFace)"]
-    CHUNK["Chunker\n1 · split on \\n\\n\n2 · merge <50 tok\n3 · split >300 tok at sentences\n4 · 50-token sliding overlap"]
-    EMBED_I["Embed chunks\nall-MiniLM-L6-v2"]
-    CHROMA[("ChromaDB\ncollection: wix_kb")]
+    direction LR
+    DS["Wix/WixQA dataset<br/>(HuggingFace)"]
+    CHUNK["Chunker<br/>1 · split on \\n\\n<br/>2 · merge &lt;50 tok<br/>3 · split &gt;300 tok at sentences<br/>4 · 50-token sliding overlap"]
+    EMBED_I["Embed chunks<br/>all-MiniLM-L6-v2"]
 
-    DS -->|"title + body"| CHUNK --> EMBED_I --> CHROMA
+    DS -->|"title + body"| CHUNK --> EMBED_I
   end
 
+  EMBED_I --> CHROMA[("ChromaDB<br/>collection: wix_kb")]
+
   %% ── Runtime ────────────────────────────────────────────────
-  USER["User question"]
-  API["FastAPI  POST /ask"]
-  RL{"Rate limit\n≤100 req/day"}
-  CLF{"Classifier\ngpt-4o-mini\n5 categories"}
-  QR["Query rewriter\ngpt-4o-mini\n(short queries only)"]
-  EMBED_R["Embed query\nall-MiniLM-L6-v2"]
-  VSEARCH["Vector search\nChromaDB · top-20"]
-  RERANK["Cross-encoder reranker\nms-marco-MiniLM-L6-v2\ntop-5"]
-  REL{"Relevance gate\nscore ≥ 2.0?"}
-  GEN["Generator\ngpt-4o-mini"]
-  CONF{"Confidence gate\nscore ≥ 5.0?"}
-  CRITIQUE["Self-critique\nFULLY / PARTIALLY / CANNOT"]
-  FOLLOWUP["Follow-up question\nask for clarification"]
-  HS["High-stakes response\nempathy + escalation"]
-  RESP["answer + sources + routing"]
-  ERR429["HTTP 429"]
+  USER["User question"] --> API["FastAPI<br/>POST /ask"] --> RL{"Rate limit<br/>≤100 req/day"}
 
-  USER --> API --> RL
-  RL -- "limit exceeded" --> ERR429
-  RL -- "ok" --> CLF
+  RL -- "limit exceeded" --> ERR429["HTTP 429"]
+  RL -- "ok" --> CLF{"Classifier<br/>gpt-4o-mini<br/>5 categories"}
 
-  CLF -- "answerable" --> QR
-  CLF -- "nonsense / irrelevant" --> RESP
-  CLF -- "out of scope" --> RESP
-  CLF -- "high-stakes" --> QR
+  CLF -- "nonsense / irrelevant<br/>out of scope" --> RESP["answer + sources<br/>+ routing"]
+  CLF -- "answerable /<br/>high-stakes" --> QR["Query rewriter<br/>gpt-4o-mini<br/>(short queries only)"]
 
-  QR --> EMBED_R --> VSEARCH
-  VSEARCH --> CHROMA
-  CHROMA --> VSEARCH
-  VSEARCH -- "20 candidates" --> RERANK
-  RERANK -- "top 5" --> REL
+  QR --> EMBED_R["Embed query<br/>all-MiniLM-L6-v2"] --> VSEARCH["Vector search<br/>ChromaDB · top-20"]
+  VSEARCH <--> CHROMA
+  VSEARCH -- "20 candidates" --> RERANK["Cross-encoder reranker<br/>ms-marco-MiniLM-L6-v2 · top-5"]
 
-  REL -- "no relevant results" --> FOLLOWUP --> RESP
-  REL -- "high-stakes" --> HS --> RESP
-  REL -- "yes" --> GEN --> CONF
+  RERANK --> REL{"Relevance gate<br/>score ≥ 2.0?"}
+
+  REL -- "no relevant results" --> FOLLOWUP["Follow-up question<br/>ask for clarification"] --> RESP
+  REL -- "high-stakes" --> HS["High-stakes response<br/>empathy + escalation"] --> RESP
+  REL -- "yes" --> GEN["Generator<br/>gpt-4o-mini"] --> CONF{"Confidence gate<br/>score ≥ 5.0?"}
 
   CONF -- "low confidence" --> RESP
-  CONF -- "confident" --> CRITIQUE
-
-  CRITIQUE -- "CANNOT_ANSWER" --> RESP
-  CRITIQUE -- "PARTIALLY / FULLY" --> RESP
+  CONF -- "confident" --> CRITIQUE["Self-critique<br/>FULLY / PARTIALLY / CANNOT"] --> RESP
 
   RESP --> USER
 
@@ -172,7 +152,7 @@ flowchart TD
 | Observability | Langfuse (traces + prompt versioning) | Shows exactly what happened on every request; prompts can be updated without code changes |
 
 **Key design decisions** (detailed reasoning in [ARCHITECTURE.md](ARCHITECTURE.md)):
-- **No framework** — every pipeline stage is written explicitly so the design decisions are visible and debuggable, not hidden behind LangChain abstractions
+- **No framework** — every pipeline stage is written explicitly so the design decisions are visible and debuggable, not hidden behind abstractions
 - **Two-stage retrieval** — fast vector search for recall, then a cross-encoder reranker for precision; this was the single largest quality improvement in evaluation
 - **Self-critique over generic caveats** — a structured LLM assessment (FULLY / PARTIALLY / CANNOT) drives specific UI behavior rather than appending "please verify" to every answer
 
@@ -185,14 +165,14 @@ flowchart TD
 | Embeddings | Local `all-MiniLM-L6-v2` | Embedding API or domain-adapted model |
 | Query expansion | 8-word gated rewriter | Selective expansion based on learned heuristics |
 | Classification | LLM call (gpt-4o-mini) | Fine-tuned small classifier, <50 ms |
-| Self-critique | In hot path | Async evaluation layer (RAGAS) |
+| Evaluation | Offline script, LLM-as-judge on 50 questions | CI-gated regression suite on prompt/retrieval changes |
 | Rate limiting | JSON file | Redis `INCR` + `EXPIRE`, per-user |
 | Prompt caching | Process lifetime | TTL-based (60–300 s), A/B tested via Langfuse datasets |
 | Agent init | Lazy, per-module | Startup lifespan event, shared across workers |
 | High-stakes | Fictional retention, mock queue | CRM-driven offers, real ticketing / live chat integration |
 | Conversation context | Stateless (single turn) | Sliding window stored in Redis, session ID on API |
 | Streaming | None | Server-Sent Events, token-by-token |
-| Frontend | Vanilla JS widget | React + TypeScript, embedded via `<script>` |
+| Frontend | Vanilla JS widget | React + TypeScript |
 | Auth | None | API key or OAuth, per-user quotas |
 | Observability | Langfuse traces | Langfuse + structured logging + latency metrics per stage |
 

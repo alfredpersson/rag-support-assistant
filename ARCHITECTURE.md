@@ -80,7 +80,7 @@ This document explains the reasoning behind every significant technical choice, 
 
 **What evaluation showed:** The classifier was the direct cause of the worst generation scores in experiments 1 and 2: it misrouted Wix-adjacent services (Google Workspace, Google Ads, POS integrations) to IRRELEVANT, producing static deflection responses that scored 1/5 for both faithfulness and relevancy. Updating the classifier prompt (experiment 4) fixed most of these, with relevancy improving +0.06.
 
-**Production consideration:** A full LLM call for every query just to classify it adds latency (~300–500 ms). In production you would either (a) use a fine-tuned smaller model (BERT-sized) for classification that runs in <50 ms locally, or (b) run classification and retrieval concurrently using async so they partially overlap.
+**Production consideration:** A full LLM call for every query just to classify it adds latency (~1.3 s measured). In production you would either (a) use a fine-tuned smaller model (BERT-sized) for classification that runs in <50 ms locally, or (b) run classification and retrieval concurrently using async so they partially overlap.
 
 ---
 
@@ -100,7 +100,7 @@ This document explains the reasoning behind every significant technical choice, 
 
 **Reasoning:** A binary faithfulness check that appends "please verify on the Wix Help Center" to every uncertain answer is low-signal and trains users to ignore it. The self-critique produces a structured, reasoned signal that drives specific UI behaviour — number of source links shown, whether to offer human escalation — which is more useful to the user and more honest about the model's actual confidence.
 
-**Production consideration:** Self-critique is itself an LLM call and therefore subject to miscalibration. It should be evaluated offline against a labelled set of (question, context, answer) triples. More robust alternatives include **retrieval-augmented faithfulness scoring** (comparing answer claims directly against chunk content with a dedicated NLI model) or **RAGAS** metrics run asynchronously as an evaluation layer rather than in the hot path.
+**Production consideration:** Self-critique is itself an LLM call and therefore subject to miscalibration. It should be evaluated offline against a labelled set of (question, context, answer) triples to verify that its assessments correlate with human judgement. A more robust alternative for the hot path would be a dedicated NLI model that compares answer claims directly against chunk content, which would be faster and more deterministic than a second LLM call.
 
 ---
 
@@ -118,7 +118,7 @@ This document explains the reasoning behind every significant technical choice, 
 
 **Decision:** Cancellation, deletion, billing disputes, and complaints are classified separately and handled by a dedicated prompt that produces structured fields (acknowledgment, retention offer, context summary, escalation offer).
 
-**Reasoning:** These queries have outsized consequences if handled badly. A standard RAG answer to "I want to cancel my account" is inappropriate. The dedicated path allows the tone, structure, and escalation behaviour to be controlled precisely without affecting normal Q&A prompts.
+**Reasoning:** These queries have outsized consequences if handled badly. A standard RAG answer to "My account was charged twice!" is inappropriate. The dedicated path allows the tone, structure, and escalation behaviour to be controlled precisely without affecting normal Q&A prompts.
 
 **Production consideration:** The retention offer is fictional. In production this would be driven by real CRM data (account age, plan tier, churn risk score) fetched at runtime, and the escalation path would connect to a real ticketing system or live chat queue rather than a mock availability widget. The structured `HighStakesOutput` fields are already well-suited to this extension.
 
@@ -168,30 +168,8 @@ This separation directly drove the root cause analysis that led to the most impa
 
 ## 16. Frontend — plain HTML/CSS/JS
 
-**Decision:** No JavaScript framework. The chat widget is ~400 lines of vanilla JS with hand-written CSS using custom properties.
+**Decision:** No JavaScript framework. The chat widget is basic HTML + CSS + JS.
 
-**Reasoning:** A chat widget does not benefit from a component framework. React or Vue would add a build step, a bundle, and abstraction layers for functionality that is inherently stateful-but-simple (open/close, append message, fetch). The result is faster to load, easier to inspect, and demonstrates CSS and DOM skills more directly than framework boilerplate.
+**Reasoning:** A simple chat widget does not benefit from a component framework. React or Vue would add a build step, a bundle, and abstraction layers for functionality that is inherently stateful-but-simple (open/close, append message, fetch). The result is faster to load and easier to inspect for the current demo purposes.
 
-**Production consideration:** As the widget grows (conversation history, rich media, markdown tables, attachment support), the absence of a framework becomes a liability. In production the widget would be a proper component library (React + TypeScript), bundled and versioned independently from the API, and embedded via a `<script>` tag on the host page — the standard Intercom/Crisp deployment pattern.
-
----
-
-## Summary — what changes for production
-
-| Area | Demo | Production |
-|---|---|---|
-| Vector store | ChromaDB (local file) | pgvector or managed service (Pinecone, Qdrant) |
-| Retrieval | Dense only | Hybrid: dense + BM25 with RRF |
-| Embeddings | Local `all-MiniLM-L6-v2` | Embedding API or domain-adapted model |
-| Query expansion | 8-word gated rewriter | Selective expansion based on learned heuristics |
-| Classification | LLM call (gpt-4o-mini) | Fine-tuned small classifier, <50 ms |
-| Self-critique | In hot path | Async evaluation layer (RAGAS) |
-| Rate limiting | JSON file | Redis `INCR` + `EXPIRE`, per-user |
-| Prompt caching | Process lifetime | TTL-based (60–300 s), A/B tested via Langfuse datasets |
-| Agent init | Lazy, per-module | Startup lifespan event, shared across workers |
-| High-stakes | Fictional retention, mock queue | CRM-driven offers, real ticketing / live chat integration |
-| Conversation context | Stateless (single turn) | Sliding window stored in Redis, session ID on API |
-| Streaming | None | Server-Sent Events, token-by-token |
-| Frontend | Vanilla JS widget | React + TypeScript, embedded via `<script>` |
-| Auth | None | API key or OAuth, per-user quotas |
-| Observability | Langfuse traces | Langfuse + structured logging + latency metrics per stage |
+**Production consideration:** As the widget grows (conversation history, rich media, markdown tables, attachment support), the absence of a framework becomes a liability. In production the widget would be a proper component library (React + TypeScript), bundled and versioned independently from the API.
