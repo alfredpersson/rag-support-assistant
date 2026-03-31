@@ -141,7 +141,7 @@ flowchart TB
   CONF -- "yes" --> CRITIQUE{"Self-critique"}
 
   CRITIQUE -- "CANNOT_ANSWER" --> CA["Escalation"]
-  CRITIQUE -- "PARTIAL" --> PA["Answer + 1 source"]
+  CRITIQUE -- "PARTIAL" --> PA["Answer + soft escalation"]
   CRITIQUE -- "FULLY_ANSWERED" --> FA["Answer + sources"]
 
   classDef llm       fill:#d4edda,stroke:#2d6a4f,color:#0f1f1c                              
