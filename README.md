@@ -118,68 +118,41 @@ Details: [experiment log](eval/EXPERIMENTS.md) and [evaluation methodology](eval
 
 ## Pipeline
 
+*Ingest (one-time):* Wix/WixQA dataset → chunk → embed → ChromaDB
+
 ```mermaid
-flowchart LR
+flowchart TB
+  USER["User question"] --> API["FastAPI"] --> CLF{"Classifier"}
 
-  %% ── Ingest (one-time) ──────────────────────────────────────
-  subgraph INGEST["ingest.py  (one-time)"]
-    direction LR
-    DS["Wix/WixQA dataset<br/>(HuggingFace)"]
-    CHUNK["Chunker<br/>1 · split on \\n\\n<br/>2 · merge &lt;50 tok<br/>3 · split &gt;300 tok at sentences<br/>4 · 50-token sliding overlap"]
-    EMBED_I["Embed chunks<br/>all-MiniLM-L6-v2"]
-
-    DS -->|"title + body"| CHUNK --> EMBED_I
-  end
-
-  EMBED_I --> CHROMA[("ChromaDB<br/>collection: wix_kb")]
-
-  %% ── Runtime ────────────────────────────────────────────────
-  USER["User question"] --> API["FastAPI<br/>POST /ask"] --> RL{"Rate limit<br/>≤100 req/day"}
-
-  RL -- "limit exceeded" --> ERR429["HTTP 429"]
-  RL -- "ok" --> CLF{"Classifier<br/>gpt-4o-mini<br/>5 categories"}
-
-  CLF -- "nonsense /<br/>irrelevant" --> STATIC["Static response<br/>+ topic suggestions"]
+  CLF -- "nonsense / irrelevant" --> STATIC["Static response"]
   CLF -- "out of scope" --> OOS["Escalation offer"]
-  CLF -- "answerable /<br/>high-stakes" --> QR["Query rewriter<br/>gpt-4o-mini<br/>(short queries only)"]
+  CLF -- "high-stakes" --> QR
+  CLF -- "answerable" --> QR["Query rewriter"]
 
-  QR --> EMBED_R["Embed query<br/>all-MiniLM-L6-v2"] --> VSEARCH["Vector search<br/>ChromaDB · top-20"]
-  VSEARCH <--> CHROMA
-  VSEARCH -- "20 candidates" --> RERANK["Cross-encoder reranker<br/>ms-marco-MiniLM-L6-v2 · top-5"]
+  QR --> RETR["Retrieve top-20"] --> RERANK["Rerank to top-5"]
 
-  RERANK --> REL{"Relevance gate<br/>score ≥ 2.0?"}
+  RERANK --> REL{"Relevant?"}
 
-  REL -- "yes" --> HS_CHECK{"High-stakes?"}
-  REL -- "no" --> HS_CHECK_NO{"High-stakes?"}
+  REL -- "no" --> FOLLOWUP["Clarifying question"]
+  REL -- "yes, high-stakes" --> HS["Empathetic response\n+ escalation"]
+  REL -- "yes" --> GEN["Generator"] --> CONF{"Confident?"}
 
-  HS_CHECK -- "yes" --> HS["High-stakes response<br/>empathy + context<br/>+ escalation"] --> RESP["Response<br/>to user"]
-  HS_CHECK -- "no" --> GEN["Generator<br/>gpt-4o-mini"] --> CONF{"Confidence gate<br/>score ≥ 5.0?"}
+  CONF -- "no" --> LC["Answer + disclaimer"]
+  CONF -- "yes" --> CRITIQUE{"Self-critique"}
 
-  HS_CHECK_NO -- "yes" --> HS_NO["High-stakes response<br/>empathy + escalation<br/>(no context)"] --> RESP
-  HS_CHECK_NO -- "no" --> FOLLOWUP["Follow-up question<br/>ask for clarification"] --> RESP
+  CRITIQUE -- "CANNOT_ANSWER" --> CA["Escalation"]
+  CRITIQUE -- "PARTIAL" --> PA["Answer + 1 source"]
+  CRITIQUE -- "FULLY_ANSWERED" --> FA["Answer + sources"]
 
-  CONF -- "low confidence" --> LC["Answer + disclaimer<br/>no sources"] --> RESP
-  CONF -- "confident" --> CRITIQUE{"Self-critique<br/>gpt-4o-mini"}
+  classDef llm       fill:#d4edda,stroke:#2d6a4f,color:#0f1f1c                              
+  classDef gate      fill:#f3f4f6,stroke:#0f1f1c,color:#0f1f1c                              
+  classDef endpoint  fill:#2d6a4f,stroke:#0f1f1c,color:#ffffff                              
+  classDef io        fill:#74b896,stroke:#2d6a4f,color:#0f1f1c                
 
-  CRITIQUE -- "CANNOT_ANSWER" --> CA["Escalation message<br/>+ connect-agent"] --> RESP
-  CRITIQUE -- "PARTIALLY_ANSWERED" --> PA["Answer + 1 source<br/>+ soft escalation link"] --> RESP
-  CRITIQUE -- "FULLY_ANSWERED" --> FA["Answer + up to 2 sources"] --> RESP
-
-  STATIC --> RESP
-  OOS --> RESP
-  RESP --> USER
-
-  classDef store     fill:#e8f4fd,stroke:#3b82f6,color:#1e3a5f
-  classDef llm       fill:#fef3c7,stroke:#f59e0b,color:#78350f
-  classDef gate      fill:#f3f4f6,stroke:#6b7280,color:#111827
-  classDef endpoint  fill:#ede9fe,stroke:#7c3aed,color:#3b0764
-  classDef io        fill:#dcfce7,stroke:#16a34a,color:#14532d
-
-  class CHROMA store
-  class CLF,QR,GEN,FOLLOWUP,HS,HS_NO llm
-  class RL,HS_CHECK,HS_CHECK_NO,REL,CONF,CRITIQUE gate
+  class CLF,QR,GEN llm
+  class REL,CONF,CRITIQUE gate
   class API endpoint
-  class USER,RESP io
+  class USER io
 ```
 
 ## Stack

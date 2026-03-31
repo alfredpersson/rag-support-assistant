@@ -44,15 +44,21 @@ expandBtn.addEventListener('click', () => {
 });
 
 // ── Minimal Markdown → HTML ────────────────────────────────────
-// Handles: **bold**, numbered lists, alternative-method headings, line breaks
+// Handles: **bold**, numbered/unordered lists, headings, line breaks
 function renderMarkdown(text) {
   const lines = text.split('\n');
   const html  = [];
   let inOl    = false;
+  let inUl    = false;
 
+  function closeUl() {
+    if (inUl) { html.push('</ul>'); inUl = false; }
+  }
   function closeOl() {
+    closeUl();
     if (inOl) { html.push('</ol>'); inOl = false; }
   }
+  function closeLists() { closeOl(); closeUl(); }
 
   function inlineFormat(line) {
     return line
@@ -62,6 +68,7 @@ function renderMarkdown(text) {
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   }
 
+  let olCounter = 0;
   let lastWasBlank = false;
   for (let raw of lines) {
     const trimmed = raw.trim();
@@ -69,21 +76,32 @@ function renderMarkdown(text) {
     // Numbered list item: "1. …" or "1) …"
     const listMatch = trimmed.match(/^(\d+)[.)]\s+(.+)$/);
     if (listMatch) {
-      if (!inOl) { html.push('<ol>'); inOl = true; }
-      html.push(`<li>${inlineFormat(listMatch[2])}</li>`);
+      closeUl();
+      if (!inOl) { html.push('<ol>'); inOl = true; olCounter = 0; }
+      olCounter++;
+      html.push(`<li value="${olCounter}">${inlineFormat(listMatch[2])}</li>`);
       lastWasBlank = false;
       continue;
     }
 
-    closeOl();
+    // Unordered list item: "- …" or "* …"
+    const ulMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (ulMatch) {
+      if (!inUl) { html.push('<ul>'); inUl = true; }
+      html.push(`<li>${inlineFormat(ulMatch[1])}</li>`);
+      lastWasBlank = false;
+      continue;
+    }
 
     if (trimmed === '') {
-      if (!lastWasBlank) html.push('<br>');
+      closeUl();
+      if (!lastWasBlank && !inOl) html.push('<br>');
       lastWasBlank = true;
       continue;
     }
 
     lastWasBlank = false;
+    closeLists();
 
     // Headings: ###, ##, #
     const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
@@ -95,8 +113,8 @@ function renderMarkdown(text) {
 
     html.push(`<p>${inlineFormat(trimmed)}</p>`);
   }
-  closeOl();
-  return html.join('').replace(/<br>(<ol)/g, '$1');
+  closeLists();
+  return html.join('').replace(/<br>(<[ou]l)/g, '$1');
 }
 
 // ── Step truncation ────────────────────────────────────────────
