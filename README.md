@@ -125,17 +125,17 @@ flowchart TB
   USER["User question"] --> API["FastAPI"] --> CLF{"Classifier"}
 
   CLF -- "nonsense / irrelevant" --> STATIC["Static response"]
+  CLF -- "answerable" --> QR["Query rewriter"]
   CLF -- "out of scope" --> OOS["Escalation offer"]
   CLF -- "high-stakes" --> QR
-  CLF -- "answerable" --> QR["Query rewriter"]
 
   QR --> RETR["Retrieve top-20"] --> RERANK["Rerank to top-5"]
 
   RERANK --> REL{"Relevant?"}
 
   REL -- "no" --> FOLLOWUP["Clarifying question"]
-  REL -- "yes, high-stakes" --> HS["Empathetic response\n+ escalation"]
   REL -- "yes" --> GEN["Generator"] --> CONF{"Confident?"}
+  REL -- "yes, high-stakes" --> HS["Empathetic response\n+ escalation"]
 
   CONF -- "no" --> LC["Answer + disclaimer"]
   CONF -- "yes" --> CRITIQUE{"Self-critique"}
