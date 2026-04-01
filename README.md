@@ -16,6 +16,14 @@ In a support context, these failure cases are where the business impact lives. A
   <em>Opening the widget shows a welcome message and suggested questions</em>
 </p>
 
+## Walkthrough
+
+<p align="center">
+  <a href="https://www.tella.tv/video/vid_cmneo6b35006306jzay6dasfh">
+    <img src="images/video_thumbnail.png" alt="Watch the walkthrough" width="500">
+  </a>
+</p>
+
 ## Limitations
 
 - **No multi-turn conversation.** The pipeline is completely stateless — each request is independent with no memory of previous messages. For a production support bot, conversation context is table stakes (follow-up questions, pronoun resolution, etc.). This is a deliberate scope boundary for the demo; the architecture would need a session store and context window to support it.
